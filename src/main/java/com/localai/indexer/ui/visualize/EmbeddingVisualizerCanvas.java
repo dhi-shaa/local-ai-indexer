@@ -7,6 +7,7 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.Separator;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
@@ -15,10 +16,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
-import javafx.scene.paint.LinearGradient;
-import javafx.scene.paint.RadialGradient;
-import javafx.scene.paint.Stop;
+import javafx.scene.shape.Circle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 
@@ -57,32 +55,35 @@ public class EmbeddingVisualizerCanvas extends StackPane {
     // Category colors
     private final Map<String, Color> categoryColors = new HashMap<>();
     private final Color[] palette = {
-        Color.web("#06b6d4"), // Cyan (Architecture)
-        Color.web("#10b981"), // Emerald (Privacy/Security)
-        Color.web("#8b5cf6"), // Violet (Database/Storage)
         Color.web("#f59e0b"), // Amber (UI/Visualization)
+        Color.web("#8b5cf6"), // Violet (Database/Storage)
+        Color.web("#10b981"), // Emerald (Privacy/Security)
+        Color.web("#06b6d4"), // Cyan (Architecture)
         Color.web("#ec4899"), // Rose (NLP/Embeddings)
         Color.web("#3b82f6")  // Blue (General)
     };
 
     private final Label infoHudLabel = new Label();
     private final Label varianceHudLabel = new Label();
+    private final VBox legendEntriesBox = new VBox(4);
 
     public EmbeddingVisualizerCanvas() {
         setStyle("-fx-background-color: #0d1117; -fx-border-color: #30363d; -fx-border-radius: 8px; -fx-background-radius: 8px;");
 
-        canvas = new Canvas(800, 520);
+        setMinWidth(400);
+        setMinHeight(300);
+        setPrefSize(900, 600);
+
+        canvas = new Canvas(900, 600);
         gc = canvas.getGraphicsContext2D();
 
-        // Responsive resizing
-        widthProperty().addListener((obs, oldW, newW) -> {
-            canvas.setWidth(newW.doubleValue());
-            render();
-        });
-        heightProperty().addListener((obs, oldH, newH) -> {
-            canvas.setHeight(newH.doubleValue());
-            render();
-        });
+        // Bind canvas dimensions directly to StackPane dimensions
+        canvas.widthProperty().bind(widthProperty());
+        canvas.heightProperty().bind(heightProperty());
+
+        // Trigger redraw whenever width or height changes
+        canvas.widthProperty().addListener((obs, oldW, newW) -> render());
+        canvas.heightProperty().addListener((obs, oldH, newH) -> render());
 
         setupEventHandlers();
 
@@ -91,12 +92,18 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         StackPane.setAlignment(topBar, Pos.TOP_RIGHT);
         StackPane.setMargin(topBar, new Insets(10));
 
-        // Bottom Variance HUD
+        // Bottom Variance HUD & Cluster Legend
         VBox bottomHud = createHudBox();
         StackPane.setAlignment(bottomHud, Pos.BOTTOM_LEFT);
         StackPane.setMargin(bottomHud, new Insets(10));
 
         getChildren().addAll(canvas, topBar, bottomHud);
+    }
+
+    @Override
+    protected void layoutChildren() {
+        super.layoutChildren();
+        render();
     }
 
     public void setOnChunkSelected(Consumer<DocumentChunkDto> listener) {
@@ -134,7 +141,7 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         HBox controls = new HBox(8);
         controls.setAlignment(Pos.CENTER_RIGHT);
         controls.setPadding(new Insets(6, 12, 6, 12));
-        controls.setStyle("-fx-background-color: rgba(22, 27, 34, 0.85); -fx-background-radius: 6px; -fx-border-color: #30363d; -fx-border-radius: 6px;");
+        controls.setStyle("-fx-background-color: rgba(22, 27, 34, 0.92); -fx-background-radius: 6px; -fx-border-color: #30363d; -fx-border-radius: 6px;");
 
         Button zoomInBtn = new Button("+ Zoom In");
         styleHudButton(zoomInBtn);
@@ -161,20 +168,46 @@ public class EmbeddingVisualizerCanvas extends StackPane {
     }
 
     private VBox createHudBox() {
-        VBox hud = new VBox(4);
-        hud.setPadding(new Insets(8, 12, 8, 12));
-        hud.setStyle("-fx-background-color: rgba(22, 27, 34, 0.85); -fx-background-radius: 6px; -fx-border-color: #30363d; -fx-border-radius: 6px;");
+        VBox hud = new VBox(6);
+        hud.setPadding(new Insets(10, 14, 10, 14));
+        hud.setStyle("-fx-background-color: rgba(22, 27, 34, 0.95); -fx-background-radius: 8px; -fx-border-color: #30363d; -fx-border-radius: 8px;");
 
         infoHudLabel.setText("PCA 2D Vector Projection | 0 Points");
-        infoHudLabel.setTextFill(Color.web("#e6edf3"));
+        infoHudLabel.setTextFill(Color.web("#f0f6fc"));
         infoHudLabel.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
 
         varianceHudLabel.setText("Explained Variance: PC1: 0.0% | PC2: 0.0%");
-        varianceHudLabel.setTextFill(Color.web("#8b949e"));
+        varianceHudLabel.setTextFill(Color.web("#c9d1d9"));
         varianceHudLabel.setFont(Font.font("Segoe UI", 11));
 
-        hud.getChildren().addAll(infoHudLabel, varianceHudLabel);
+        // Legend Section located below the HUD metrics
+        Label legendHeader = new Label("Cluster Categories:");
+        legendHeader.setTextFill(Color.web("#8b949e"));
+        legendHeader.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
+
+        legendEntriesBox.setSpacing(4);
+
+        hud.getChildren().addAll(infoHudLabel, varianceHudLabel, new Separator(), legendHeader, legendEntriesBox);
         return hud;
+    }
+
+    private void updateLegend() {
+        legendEntriesBox.getChildren().clear();
+        for (Map.Entry<String, Color> entry : categoryColors.entrySet()) {
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+
+            Circle dot = new Circle(5, entry.getValue());
+            dot.setStroke(Color.web("#ffffff", 0.7));
+            dot.setStrokeWidth(1.0);
+
+            Label nameLabel = new Label(entry.getKey());
+            nameLabel.setTextFill(Color.web("#f0f6fc")); // High contrast label color
+            nameLabel.setFont(Font.font("Segoe UI", FontWeight.SEMI_BOLD, 11));
+
+            row.getChildren().addAll(dot, nameLabel);
+            legendEntriesBox.getChildren().add(row);
+        }
     }
 
     private void styleHudButton(Button btn) {
@@ -187,6 +220,7 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         infoHudLabel.setText(String.format("PCA 2D Vector Projection | %d Chunks | Zoom: %.1fx", chunks.size(), zoom));
         varianceHudLabel.setText(String.format("Explained Variance: PC1: %.1f%% | PC2: %.1f%% (Total: %.1f%%)",
             explainedVar1 * 100, explainedVar2 * 100, (explainedVar1 + explainedVar2) * 100));
+        updateLegend();
     }
 
     private void setupEventHandlers() {
@@ -240,19 +274,18 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         double mouseY = e.getY();
 
         DocumentChunkDto nearest = null;
-        double minDistance = 16.0; // detection radius in pixels
+        double minDistance = 18.0; // detection radius in pixels
 
         double w = canvas.getWidth();
         double h = canvas.getHeight();
-        double cx = w / 2.0 + panX;
-        double cy = h / 2.0 + panY;
-        double scale = Math.min(w, h) * 0.42 * zoom;
+        if (w <= 0 || h <= 0) return;
+        double scaleFactor = Math.min(w, h) * 0.4;
 
         for (DocumentChunkDto chunk : chunks) {
-            double px = cx + chunk.x2d() * scale;
-            double py = cy + chunk.y2d() * scale;
+            double screenX = (w / 2.0) + (chunk.x2d() * scaleFactor * zoom) + panX;
+            double screenY = (h / 2.0) - (chunk.y2d() * scaleFactor * zoom) + panY;
 
-            double dist = Math.hypot(px - mouseX, py - mouseY);
+            double dist = Math.hypot(screenX - mouseX, screenY - mouseY);
             if (dist < minDistance) {
                 minDistance = dist;
                 nearest = chunk;
@@ -276,31 +309,27 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         gc.setFill(Color.web("#0d1117"));
         gc.fillRect(0, 0, w, h);
 
-        double cx = w / 2.0 + panX;
-        double cy = h / 2.0 + panY;
-        double scale = Math.min(w, h) * 0.42 * zoom;
-
         // 2. Grid lines
-        renderGrid(w, h, cx, cy);
+        renderGrid(w, h);
 
         // 3. Axes
-        renderAxes(w, h, cx, cy);
+        renderAxes(w, h);
 
-        // 4. Scatter points
-        renderPoints(cx, cy, scale);
+        // 4. Scatter points with coordinate transformation
+        renderPoints(w, h);
 
         // 5. Tooltip for hovered chunk
         if (hoveredChunk != null) {
-            renderTooltip(cx, cy, scale, hoveredChunk);
+            renderTooltip(w, h, hoveredChunk);
         }
-
-        // 6. Cluster Legend
-        renderLegend(w, h);
     }
 
-    private void renderGrid(double w, double h, double cx, double cy) {
+    private void renderGrid(double w, double h) {
         gc.setStroke(Color.web("#161b22"));
         gc.setLineWidth(1.0);
+
+        double cx = (w / 2.0) + panX;
+        double cy = (h / 2.0) + panY;
 
         double step = 50 * zoom;
         if (step > 15) {
@@ -313,18 +342,21 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         }
     }
 
-    private void renderAxes(double w, double h, double cx, double cy) {
-        // PC1 horizontal axis
+    private void renderAxes(double w, double h) {
+        double cx = (w / 2.0) + panX;
+        double cy = (h / 2.0) + panY;
+
+        // PC1 horizontal axis (y = 0)
         gc.setStroke(Color.web("#30363d"));
         gc.setLineWidth(1.5);
         if (cy >= 0 && cy <= h) {
             gc.strokeLine(0, cy, w, cy);
             gc.setFill(Color.web("#8b949e"));
             gc.setFont(Font.font("Segoe UI", FontWeight.BOLD, 10));
-            gc.fillText("Principal Component 1 (PC1) →", w - 170, cy - 8);
+            gc.fillText("Principal Component 1 (PC1) →", w - 175, cy - 8);
         }
 
-        // PC2 vertical axis
+        // PC2 vertical axis (x = 0)
         if (cx >= 0 && cx <= w) {
             gc.strokeLine(cx, 0, cx, h);
             gc.setFill(Color.web("#8b949e"));
@@ -333,13 +365,16 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         }
     }
 
-    private void renderPoints(double cx, double cy, double scale) {
-        for (DocumentChunkDto chunk : chunks) {
-            double px = cx + chunk.x2d() * scale;
-            double py = cy + chunk.y2d() * scale;
+    private void renderPoints(double w, double h) {
+        double scaleFactor = Math.min(w, h) * 0.4;
 
-            // Skip off-screen points
-            if (px < -20 || px > canvas.getWidth() + 20 || py < -20 || py > canvas.getHeight() + 20) {
+        for (DocumentChunkDto chunk : chunks) {
+            // Coordinate transformation from [-1.0, 1.0] to pixel space
+            double screenX = (w / 2.0) + (chunk.x2d() * scaleFactor * zoom) + panX;
+            double screenY = (h / 2.0) - (chunk.y2d() * scaleFactor * zoom) + panY;
+
+            // Skip far off-screen points
+            if (screenX < -50 || screenX > w + 50 || screenY < -50 || screenY > h + 50) {
                 continue;
             }
 
@@ -347,54 +382,59 @@ public class EmbeddingVisualizerCanvas extends StackPane {
             boolean isHovered = (chunk == hoveredChunk);
             boolean isSelected = (chunk == selectedChunk);
 
-            if (isSelected) {
-                // Pulsing selected ring
-                gc.setStroke(Color.web("#ffffff"));
-                gc.setLineWidth(2.5);
-                gc.strokeOval(px - 9, py - 9, 18, 18);
-            }
+            // Minimum visible radius: 6.0px (12px diameter) to 8.5px
+            double r = (isHovered || isSelected) ? 8.5 : 6.0;
 
-            if (isHovered) {
-                // Outer glowing halo
-                gc.setFill(new Color(pointColor.getRed(), pointColor.getGreen(), pointColor.getBlue(), 0.35));
-                gc.fillOval(px - 11, py - 11, 22, 22);
+            // 1. Semi-transparent glow ring around point
+            gc.setFill(new Color(pointColor.getRed(), pointColor.getGreen(), pointColor.getBlue(), 0.35));
+            gc.fillOval(screenX - (r + 3.0), screenY - (r + 3.0), (r + 3.0) * 2, (r + 3.0) * 2);
 
-                gc.setStroke(Color.web("#ffffff"));
-                gc.setLineWidth(1.5);
-                gc.strokeOval(px - 6, py - 6, 12, 12);
-            }
-
-            // Core point circle
-            double r = (isHovered || isSelected) ? 5.5 : 4.0;
+            // 2. Solid opaque fill corresponding to cluster
             gc.setFill(pointColor);
-            gc.fillOval(px - r, py - r, r * 2, r * 2);
+            gc.fillOval(screenX - r, screenY - r, r * 2, r * 2);
+
+            // 3. Crisp high-contrast outline so points pop against dark background
+            gc.setStroke(Color.web("#ffffff", 0.85));
+            gc.setLineWidth(1.2);
+            gc.strokeOval(screenX - r, screenY - r, r * 2, r * 2);
+
+            if (isSelected) {
+                gc.setStroke(Color.web("#ffffff", 1.0));
+                gc.setLineWidth(2.5);
+                gc.strokeOval(screenX - (r + 5.0), screenY - (r + 5.0), (r + 5.0) * 2, (r + 5.0) * 2);
+            } else if (isHovered) {
+                gc.setStroke(Color.web("#58a6ff", 1.0));
+                gc.setLineWidth(2.0);
+                gc.strokeOval(screenX - (r + 4.0), screenY - (r + 4.0), (r + 4.0) * 2, (r + 4.0) * 2);
+            }
         }
     }
 
-    private void renderTooltip(double cx, double cy, double scale, DocumentChunkDto chunk) {
-        double px = cx + chunk.x2d() * scale;
-        double py = cy + chunk.y2d() * scale;
+    private void renderTooltip(double w, double h, DocumentChunkDto chunk) {
+        double scaleFactor = Math.min(w, h) * 0.4;
+        double screenX = (w / 2.0) + (chunk.x2d() * scaleFactor * zoom) + panX;
+        double screenY = (h / 2.0) - (chunk.y2d() * scaleFactor * zoom) + panY;
 
-        double boxW = 260;
-        double boxH = 80;
-        double boxX = px + 12;
-        double boxY = py - 40;
+        double boxW = 270;
+        double boxH = 84;
+        double boxX = screenX + 14;
+        double boxY = screenY - 42;
 
         // Keep inside canvas bounds
-        if (boxX + boxW > canvas.getWidth() - 10) {
-            boxX = px - boxW - 12;
+        if (boxX + boxW > w - 10) {
+            boxX = screenX - boxW - 14;
         }
         if (boxY < 10) {
             boxY = 10;
         }
-        if (boxY + boxH > canvas.getHeight() - 10) {
-            boxY = canvas.getHeight() - boxH - 10;
+        if (boxY + boxH > h - 10) {
+            boxY = h - boxH - 10;
         }
 
         // Tooltip box shadow & background
         gc.setFill(Color.web("rgba(22, 27, 34, 0.95)"));
         gc.setStroke(Color.web("#58a6ff"));
-        gc.setLineWidth(1.2);
+        gc.setLineWidth(1.4);
         gc.fillRoundRect(boxX, boxY, boxW, boxH, 8, 8);
         gc.strokeRoundRect(boxX, boxY, boxW, boxH, 8, 8);
 
@@ -402,58 +442,27 @@ public class EmbeddingVisualizerCanvas extends StackPane {
         Color catColor = categoryColors.getOrDefault(chunk.category(), Color.web("#58a6ff"));
         gc.setFill(catColor);
         gc.setFont(Font.font("Segoe UI", FontWeight.BOLD, 12));
-        gc.fillText("[" + chunk.chunkId() + "] " + chunk.category(), boxX + 10, boxY + 20);
+        gc.fillText("[" + chunk.chunkId() + "] " + chunk.category(), boxX + 12, boxY + 22);
 
         // File & Page
-        gc.setFill(Color.web("#e6edf3"));
-        gc.setFont(Font.font("Segoe UI", 11));
+        gc.setFill(Color.web("#f0f6fc"));
+        gc.setFont(Font.font("Segoe UI", FontWeight.SEMI_BOLD, 11));
         String fileText = chunk.fileName() + " (p. " + chunk.pageNumber() + ")";
-        if (fileText.length() > 34) {
-            fileText = fileText.substring(0, 31) + "...";
+        if (fileText.length() > 36) {
+            fileText = fileText.substring(0, 33) + "...";
         }
-        gc.fillText(fileText, boxX + 10, boxY + 38);
+        gc.fillText(fileText, boxX + 12, boxY + 40);
 
         // Snippet excerpt
         gc.setFill(Color.web("#8b949e"));
         gc.setFont(Font.font("Segoe UI", 10));
         String snippet = chunk.textSnippet();
-        if (snippet.length() > 46) {
-            snippet = snippet.substring(0, 43) + "...";
+        if (snippet.length() > 48) {
+            snippet = snippet.substring(0, 45) + "...";
         }
-        gc.fillText(snippet, boxX + 10, boxY + 54);
+        gc.fillText(snippet, boxX + 12, boxY + 58);
 
         gc.setFill(Color.web("#388bfd"));
-        gc.fillText("Click to inspect chunk details", boxX + 10, boxY + 70);
-    }
-
-    private void renderLegend(double w, double h) {
-        if (categoryColors.isEmpty()) return;
-
-        double legX = 14;
-        double legY = 14;
-        double lineHeight = 18;
-        double legH = categoryColors.size() * lineHeight + 16;
-        double legW = 150;
-
-        gc.setFill(Color.web("rgba(22, 27, 34, 0.85)"));
-        gc.setStroke(Color.web("#30363d"));
-        gc.setLineWidth(1.0);
-        gc.fillRoundRect(legX, legY, legW, legH, 6, 6);
-        gc.strokeRoundRect(legX, legY, legW, legH, 6, 6);
-
-        double currY = legY + 16;
-        gc.setFont(Font.font("Segoe UI", 11));
-        for (Map.Entry<String, Color> entry : categoryColors.entrySet()) {
-            gc.setFill(entry.getValue());
-            gc.fillOval(legX + 8, currY - 8, 8, 8);
-
-            gc.setFill(Color.web("#c9d1d9"));
-            String catName = entry.getKey();
-            if (catName.length() > 16) {
-                catName = catName.substring(0, 14) + "..";
-            }
-            gc.fillText(catName, legX + 22, currY);
-            currY += lineHeight;
-        }
+        gc.fillText("Click to inspect chunk details in inspector", boxX + 12, boxY + 74);
     }
 }

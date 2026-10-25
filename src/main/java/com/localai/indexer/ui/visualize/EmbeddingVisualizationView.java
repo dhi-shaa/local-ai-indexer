@@ -127,10 +127,19 @@ public class EmbeddingVisualizationView extends BorderPane {
         snippetArea.setText(chunk.textSnippet());
     }
 
+    @Override
+    protected void layoutChildren() {
+        super.layoutChildren();
+        if (canvas != null) {
+            canvas.render();
+        }
+    }
+
     public void runPca() {
         List<DocumentChunkDto> rawChunks = MockPipelineBackendService.getInstance().getIndexedChunks();
         PcaReducer.PcaResult result = PcaReducer.reduceTo2D(rawChunks);
         canvas.setChunks(result.projectedChunks(), result.explainedVarianceRatio1(), result.explainedVarianceRatio2());
         pcaStatusLabel.setText(String.format("PCA computed in %d ms | %d chunks projected", result.computeTimeMs(), rawChunks.size()));
+        javafx.application.Platform.runLater(canvas::render);
     }
 }
