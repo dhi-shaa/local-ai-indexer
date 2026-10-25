@@ -1,0 +1,218 @@
+package com.localai.indexer.service;
+
+import com.localai.indexer.model.DocumentChunkDto;
+import com.localai.indexer.model.HybridSearchResultDto;
+import com.localai.indexer.model.PipelineMetricsDto;
+import com.localai.indexer.model.PipelineStageTiming;
+import com.localai.indexer.model.SourceCitation;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+
+/**
+ * Service acting as the backend engine connector. Produces pipeline stage metrics,
+ * responds to hybrid search queries with citations, and generates high-dimensional embeddings.
+ */
+public class MockPipelineBackendService {
+
+    private static final MockPipelineBackendService INSTANCE = new MockPipelineBackendService();
+    private final Random random = new Random(42);
+    private final List<Consumer<PipelineMetricsDto>> metricsListeners = new CopyOnWriteArrayList<>();
+    private final List<DocumentChunkDto> indexedChunks = new ArrayList<>();
+
+    public static MockPipelineBackendService getInstance() {
+        return INSTANCE;
+    }
+
+    public MockPipelineBackendService() {
+        seedSampleData();
+    }
+
+    public void addMetricsListener(Consumer<PipelineMetricsDto> listener) {
+        metricsListeners.add(listener);
+    }
+
+    public void removeMetricsListener(Consumer<PipelineMetricsDto> listener) {
+        metricsListeners.remove(listener);
+    }
+
+    /**
+     * Produces a single live pipeline metrics frame.
+     */
+    public PipelineMetricsDto generateMetricsFrame(int step) {
+        String[] sampleFiles = {
+            "docs/architecture/ADR-001-hybrid-search.md",
+            "docs/privacy/local-airgap-policy.pdf",
+            "src/core/nlp/RecursiveTokenChunker.java",
+            "specs/vector-h2-engine-spec.pdf",
+            "configs/offline-embedding-onnx.json"
+        };
+        String currentFile = sampleFiles[step % sampleFiles.length];
+
+        // Per-stage timings (parse, chunk, embed, store)
+        long parseMs = 15 + random.nextInt(25);
+        long chunkMs = 8 + random.nextInt(15);
+        long embedMs = 45 + random.nextInt(60); // Embedding execution latency
+        long storeMs = 12 + random.nextInt(18);
+
+        PipelineStageTiming timing = new PipelineStageTiming(parseMs, chunkMs, embedMs, storeMs);
+        double throughputDocsPerSec = 14.5 + (random.nextDouble() * 8.0);
+        double embeddingLatencyMs = embedMs + (random.nextDouble() * 5.0);
+        int activeDocs = 12 + (step % 20);
+        int totalIndexed = 250 + (step * 8);
+        double memMb = 142.0 + (random.nextDouble() * 20.0);
+
+        PipelineMetricsDto metrics = new PipelineMetricsDto(
+            throughputDocsPerSec,
+            embeddingLatencyMs,
+            timing,
+            activeDocs,
+            totalIndexed,
+            memMb,
+            currentFile
+        );
+
+        for (Consumer<PipelineMetricsDto> listener : metricsListeners) {
+            try {
+                listener.accept(metrics);
+            } catch (Exception ignored) {}
+        }
+
+        return metrics;
+    }
+
+    /**
+     * Executes hybrid search and produces answer with ranked source citations.
+     */
+    public HybridSearchResultDto executeSearch(String query) {
+        long startTime = System.currentTimeMillis();
+        String qLower = query.toLowerCase();
+
+        List<SourceCitation> citations = new ArrayList<>();
+        String answer;
+
+        if (qLower.contains("privacy") || qLower.contains("network") || qLower.contains("offline") || qLower.contains("airgap")) {
+            answer = "Local AI Indexer enforces a strict zero-outbound air-gap policy. All document parsing (Apache Tika), chunking, and embedding generation occur strictly in-memory on the local CPU/GPU using embedded ONNX models and local H2 vector store. Zero remote calls or telemetry are transmitted.";
+            citations.add(new SourceCitation(
+                "chk_priv_01",
+                "docs/privacy/local-airgap-policy.pdf",
+                1,
+                0.97,
+                "Section 1.1: Air-Gap Architecture",
+                "Strict local containment: The indexing runtime binds exclusively to loopback (127.0.0.1). Any outbound internet socket connection attempts are intercepted and blocked at the JVM level."
+            ));
+            citations.add(new SourceCitation(
+                "chk_priv_02",
+                "docs/privacy/local-airgap-policy.pdf",
+                3,
+                0.93,
+                "Section 2.4: Zero Telemetry Guarantee",
+                "External HTTP/HTTPS and DNS telemetry requests are permanently disabled. User document repositories and vector embeddings never exit the local host machine."
+            ));
+            citations.add(new SourceCitation(
+                "chk_priv_03",
+                "src/main/java/com/localai/indexer/service/LocalPrivacyService.java",
+                1,
+                0.89,
+                "Class: LocalPrivacyService",
+                "Monitors network sockets, confirms active interfaces, and maintains cryptographic audit proofs verifying zero outbound network transmission."
+            ));
+        } else if (qLower.contains("embed") || qLower.contains("pca") || qLower.contains("vector") || qLower.contains("dimension")) {
+            answer = "High-dimensional embeddings (384-dim from local models) are stored in embedded H2 database using vector extension tables. For 2D visualization, a pure Java Principal Component Analysis (PCA) algorithm calculates the top 2 eigenvectors via covariance matrix power iteration to map vector spaces interactively.";
+            citations.add(new SourceCitation(
+                "chk_vec_01",
+                "specs/vector-h2-engine-spec.pdf",
+                2,
+                0.96,
+                "Section 3: Dimensionality & Persistence",
+                "Document chunks are transformed into 384-dimensional dense vectors. Persistent storage leverages H2 vector indexes with cosine distance similarity metrics."
+            ));
+            citations.add(new SourceCitation(
+                "chk_vec_02",
+                "docs/architecture/ADR-004-pca-reduction.md",
+                1,
+                0.92,
+                "Principal Component Reduction Design",
+                "Interactive visual analysis reduces high-dimensional vector embeddings to 2D coordinates using covariance matrix decomposition and power iteration without external native math libraries."
+            ));
+        } else {
+            answer = "Hybrid search synthesizes dense vector similarity (cosine distance on H2 vector tables) with BM25 sparse keyword matching to retrieve high-precision document chunks with source metadata and page provenance.";
+            citations.add(new SourceCitation(
+                "chk_hyb_01",
+                "docs/architecture/ADR-001-hybrid-search.md",
+                1,
+                0.95,
+                "Architecture Decision: Hybrid Retrieval",
+                "Combining dense semantic embeddings with BM25 keyword inverted index yields optimal recall for domain-specific technical documentation and source code identifiers."
+            ));
+            citations.add(new SourceCitation(
+                "chk_hyb_02",
+                "src/core/nlp/RecursiveTokenChunker.java",
+                2,
+                0.90,
+                "Recursive Chunking Strategy",
+                "Documents parsed by Apache Tika are chunked into 512-token segments with 64-token overlap, preserving heading hierarchies, file paths, and exact page numbers."
+            ));
+            citations.add(new SourceCitation(
+                "chk_hyb_03",
+                "specs/pipeline-spec.pdf",
+                4,
+                0.86,
+                "Pipeline Ingestion Benchmarks",
+                "Multi-threaded pipeline achieves >15 docs/sec ingestion throughput with per-stage telemetry tracking parse, chunk, embed, and store phases."
+            ));
+        }
+
+        long latency = System.currentTimeMillis() - startTime + 38 + random.nextInt(20);
+        return new HybridSearchResultDto(query, answer, latency, citations);
+    }
+
+    /**
+     * Seeds realistic clusters of document chunks with 32-dimensional synthetic embeddings
+     * grouped by topic (Architecture, Privacy/Security, Database/Storage, UI/Visualization, NLP/Embeddings).
+     */
+    private void seedSampleData() {
+        String[] categories = {"Architecture", "Privacy/Security", "Database/Storage", "UI/Visualization", "NLP/Embeddings"};
+        int dimensions = 32;
+
+        // Cluster centers for realistic PCA separation
+        double[][] centers = new double[categories.length][dimensions];
+        for (int c = 0; c < categories.length; c++) {
+            for (int d = 0; d < dimensions; d++) {
+                centers[c][d] = (c == d % categories.length) ? 2.5 : (random.nextDouble() * 0.4 - 0.2);
+            }
+        }
+
+        int chunkCount = 120;
+        for (int i = 0; i < chunkCount; i++) {
+            int catIdx = i % categories.length;
+            String category = categories[catIdx];
+            String chunkId = String.format("chk_%04d", i + 1);
+            String fileName = switch (catIdx) {
+                case 0 -> "docs/architecture/ADR-" + (i % 5 + 1) + ".md";
+                case 1 -> "docs/privacy/security-audit-v" + (i % 3 + 1) + ".pdf";
+                case 2 -> "specs/h2-vector-schema-p" + (i % 4 + 1) + ".sql";
+                case 3 -> "src/ui/visualize/CanvasRenderer-" + (i % 3 + 1) + ".java";
+                default -> "src/core/nlp/TokenEmbedder-" + (i % 4 + 1) + ".java";
+            };
+            int page = (i % 8) + 1;
+            String snippet = "Document excerpt for [" + chunkId + "] in " + category + " from " + fileName +
+                " page " + page + ". Contains contextual embeddings, semantic boundaries, and vector representations.";
+
+            // Generate vector near cluster center with random perturbation
+            double[] vector = new double[dimensions];
+            for (int d = 0; d < dimensions; d++) {
+                vector[d] = centers[catIdx][d] + (random.nextGaussian() * 0.35);
+            }
+
+            indexedChunks.add(new DocumentChunkDto(chunkId, fileName, page, category, snippet, vector, 0.0, 0.0));
+        }
+    }
+
+    public List<DocumentChunkDto> getIndexedChunks() {
+        return new ArrayList<>(indexedChunks);
+    }
+}
