@@ -1,0 +1,49 @@
+LOCAL AI PRIVACY CHAT AND DOCUMENT INDEXER
+TECHNICAL SPECIFICATION AND SYSTEM ARCHITECTURE
+Page 1
+
+Section 1: Architectural Overview
+The Local AI Privacy Chat and Document Indexer is an air-gapped, zero-telemetry desktop application designed to process sensitive documents locally on the user's workstation. The system pairs a lightweight JavaFX desktop user interface with an embedded headless Spring Boot backend engine. By operating purely on localhost, the architecture guarantees that confidential intellectual property, personal identifiable information (PII), and proprietary source code never leave the local machine.
+
+Section 2: Embedded Vector Storage in H2
+To eliminate external database dependencies such as PostgreSQL or PGVector, the backend leverages an embedded H2 database equipped with custom User-Defined Function (UDF) vector extensions. High-dimensional vector embeddings are stored alongside textual chunks as binary blobs (VARBINARY) and JSON arrays (CLOB). Custom SQL aliases including COSINE_SIMILARITY, DOT_PRODUCT, and EUCLIDEAN_DISTANCE are registered directly into the H2 database engine, enabling native in-database vector similarity calculations without any external runtime dependencies.
+\f
+LOCAL AI PRIVACY CHAT AND DOCUMENT INDEXER
+TECHNICAL SPECIFICATION AND SYSTEM ARCHITECTURE
+Page 2
+
+Section 3: Unstructured Document Ingestion via Apache Tika
+Document ingestion is handled by Apache Tika, which provides unified extraction across heterogeneous file formats including PDF, TXT, DOCX, and Markdown. The ingestion engine tracks form-feed delimiters (\f) to preserve physical page numbers during text extraction. Metadata such as document title, author, and MIME content type are captured and associated with the parent document record for auditability and source attribution.
+
+Section 4: Semantic Chunking Methodology
+Unlike legacy naive chunking pipelines that divide text at arbitrary token or character counts, the semantic chunker partitions documents along natural syntactic boundaries. Primary segmentation occurs at double newline paragraph breaks. When a paragraph exceeds the target chunk size, secondary splitting divides sentences strictly along sentence boundary punctuation marks (.!? followed by whitespace and capital letters). This semantic grouping ensures that conceptual context remains unbroken across chunks.
+\f
+LOCAL AI PRIVACY CHAT AND DOCUMENT INDEXER
+TECHNICAL SPECIFICATION AND SYSTEM ARCHITECTURE
+Page 3
+
+Section 5: From-Scratch Okapi BM25 Ranking Algorithm
+The keyword retrieval engine implements the Okapi BM25 probabilistic relevance algorithm from scratch in pure Java. The algorithm constructs an in-memory inverted index mapping normalized terms to chunk identifiers and term frequencies. The Robertson-Spärck Jones Inverse Document Frequency (IDF) formula with floor smoothing prevents negative term weights. The BM25 scoring parameters are configured with standard tuning constants k1 equal to 1.2 and b equal to 0.75, accounting for non-linear term frequency saturation and document length normalization against the corpus average document length.
+
+Section 6: Hybrid Search Score Fusion and Reciprocal Rank Fusion
+The search coordinator synthesizes results from both semantic vector retrieval and BM25 keyword matching. Vector cosine similarity scores from H2 are normalized to the unit interval [0, 1]. Similarly, raw BM25 scores are normalized against the maximum observed score in the candidate set. A configurable interpolation parameter alpha (defaulting to 0.5) balances lexical precision against semantic recall. The hybrid search engine also supports Reciprocal Rank Fusion (RRF) with a smoothing constant of 60 to merge disparate ranking signals robustly.
+\f
+LOCAL AI PRIVACY CHAT AND DOCUMENT INDEXER
+TECHNICAL SPECIFICATION AND SYSTEM ARCHITECTURE
+Page 4
+
+Section 7: Local Ollama LLM Integration and Privacy Safeguards
+Dense vector embeddings and contextual generative synthesis are routed to a locally running Ollama instance communicating over HTTP at localhost port 11434. The default embedding model is nomic-embed-text (producing 768-dimensional embeddings), and the default generative model is llama3.2. To ensure resilience during offline execution or test environments, the engine incorporates an automatic fallback to local 384-dimensional dense semantic hashing and extractive synthesis. All network calls are strictly restricted to the loopback interface (127.0.0.1).
+
+Section 8: JavaFX Frontend Communication and Polling Endpoints
+The headless Spring Boot engine exposes a REST API at port 8080 under the /api prefix, including /api/status, /api/index, /api/search, /api/documents, and /api/clear. When executed in a unified desktop bundle, the JavaFX frontend can also invoke direct method references through the BackendService Spring bean facade, completely eliminating HTTP networking overhead.
+\f
+LOCAL AI PRIVACY CHAT AND DOCUMENT INDEXER
+TECHNICAL SPECIFICATION AND SYSTEM ARCHITECTURE
+Page 5
+
+Section 9: Latency Targets and Benchmark Budgets
+The backend ingestion pipeline enforces strict latency budgets to maintain an interactive desktop experience. For a standard 5-page document, the target parse latency via Apache Tika is under 150 milliseconds. Semantic chunking is budgeted for under 30 milliseconds. Dense vector embedding generation takes between 20 to 100 milliseconds per chunk depending on hardware acceleration. H2 database persistence takes under 25 milliseconds. The hybrid search retrieval latency target is less than 50 milliseconds.
+
+Section 10: Citation Provenance and Unified Response DTO
+Every search query produces a unified SearchResponseDto containing the synthesized AI response, exact text chunks, source file paths, and page numbers. Explicit citations identify the origin document name and page number for every matched passage, empowering users to verify AI assertions against primary local documents.
