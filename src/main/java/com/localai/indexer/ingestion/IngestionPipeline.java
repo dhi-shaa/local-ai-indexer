@@ -33,6 +33,9 @@ public class IngestionPipeline {
     private final EmbeddingService embeddingService;
     private final VectorRepository vectorRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.localai.indexer.search.bm25.BM25Engine bm25Engine;
+
     public IngestionPipeline(DocumentParser documentParser,
                              ChunkingPipeline chunkingPipeline,
                              EmbeddingService embeddingService,
@@ -81,6 +84,10 @@ public class IngestionPipeline {
             // Clean up any previous indexing for this document ID to ensure idempotency
             vectorRepository.deleteByDocumentId(parsedDoc.getDocumentId());
             vectorRepository.saveAll(chunks);
+            if (bm25Engine != null) {
+                bm25Engine.indexChunks(chunks);
+                log.info("BM25 in-memory inverted index dynamically updated with {} chunks.", chunks.size());
+            }
             long storeLatency = System.currentTimeMillis() - tStoreStart;
             response.setStoreLatencyMs(storeLatency);
 
@@ -137,6 +144,10 @@ public class IngestionPipeline {
             long tStoreStart = System.currentTimeMillis();
             vectorRepository.deleteByDocumentId(parsedDoc.getDocumentId());
             vectorRepository.saveAll(chunks);
+            if (bm25Engine != null) {
+                bm25Engine.indexChunks(chunks);
+                log.info("BM25 in-memory inverted index dynamically updated with {} chunks.", chunks.size());
+            }
             long storeLatency = System.currentTimeMillis() - tStoreStart;
             response.setStoreLatencyMs(storeLatency);
 

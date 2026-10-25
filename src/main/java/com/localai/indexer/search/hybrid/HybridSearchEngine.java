@@ -52,6 +52,13 @@ public class HybridSearchEngine {
         log.info("BM25 Inverted Index synchronized with {} chunks from H2.", allChunks.size());
     }
 
+    public synchronized void indexDocumentChunks(List<DocumentChunk> chunks) {
+        if (chunks != null && !chunks.isEmpty()) {
+            bm25Engine.indexChunks(chunks);
+            log.info("Dynamically indexed {} new document chunks into BM25.", chunks.size());
+        }
+    }
+
     /**
      * Execute hybrid search combining BM25 keyword matching and H2 vector similarity.
      */
@@ -106,6 +113,17 @@ public class HybridSearchEngine {
             double normBm25 = Math.max(0.0, rawBm25 / maxBm25);
 
             double hybridScore = (alpha * normVector) + ((1.0 - alpha) * normBm25);
+
+            // Boost user-uploaded documents over default internal/system docs (e.g. docs/architecture/, specs/)
+            String path = chunk.getFilePath() != null ? chunk.getFilePath().toLowerCase() : "";
+            boolean isInternalSystemDoc = path.contains("docs/architecture") || path.contains("docs\\architecture")
+                    || path.contains("docs/privacy") || path.contains("docs\\privacy")
+                    || path.startsWith("specs/") || path.startsWith("specs\\");
+
+            if (!isInternalSystemDoc) {
+                // Prioritize user-uploaded documents so relevant user chunks take precedence over internal docs
+                hybridScore = (hybridScore * 1.5) + 0.2;
+            }
 
             SearchResultChunkDto dto = new SearchResultChunkDto(
                     chunk.getId(),

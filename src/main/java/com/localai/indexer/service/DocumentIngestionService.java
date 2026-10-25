@@ -12,6 +12,7 @@ import com.localai.indexer.ingestion.model.ParsedDocument;
 import com.localai.indexer.ingestion.parser.DocumentParser;
 import com.localai.indexer.model.DocumentChunkDto;
 import com.localai.indexer.model.PipelineStageTiming;
+import com.localai.indexer.search.hybrid.HybridSearchEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -143,6 +144,22 @@ public class DocumentIngestionService {
             }
             long embedMs = System.currentTimeMillis() - tEmbedStart;
 
+            // Attempt to sync into Spring H2 VectorRepository and HybridSearchEngine BM25 if available
+            try {
+                if (LocalAiIndexerApplication.getContext() != null && LocalAiIndexerApplication.getContext().isActive()) {
+                    VectorRepository vectorRepo = LocalAiIndexerApplication.getBean(VectorRepository.class);
+                    HybridSearchEngine hybridEngine = LocalAiIndexerApplication.getBean(HybridSearchEngine.class);
+                    if (vectorRepo != null) {
+                        vectorRepo.saveAll(chunks);
+                    }
+                    if (hybridEngine != null) {
+                        hybridEngine.refreshBM25Index();
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Spring VectorRepository/HybridSearchEngine not active in current JVM: {}", e.getMessage());
+            }
+
             long storeMs = 12; // In-memory persistence timing
             PipelineStageTiming timing = new PipelineStageTiming(parseMs, chunkMs, embedMs, storeMs);
 
@@ -173,7 +190,7 @@ public class DocumentIngestionService {
             String chunkId = c.getId() != null ? c.getId() : ("custom_" + UUID.randomUUID().toString().substring(0, 8));
             int page = c.getPageNumber() > 0 ? c.getPageNumber() : 1;
             String text = c.getContent() != null ? c.getContent() : "";
-            String snippet = text.length() > 200 ? text.substring(0, 197) + "..." : text;
+            String snippet = text; // Retain actual full plain text content for synthesis
 
             double[] vector32 = downsampleTo32Dimensions(c.getEmbedding());
 

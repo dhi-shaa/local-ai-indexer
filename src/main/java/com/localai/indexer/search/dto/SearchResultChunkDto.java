@@ -84,6 +84,10 @@ public class SearchResultChunkDto {
         return content;
     }
 
+    public String getText() {
+        return content != null ? content : "";
+    }
+
     public void setContent(String content) {
         this.content = content;
     }

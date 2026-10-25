@@ -54,8 +54,14 @@ public class OllamaLlmService implements LlmService {
         StringBuilder retrievedChunks = new StringBuilder();
         for (int i = 0; i < contextChunks.size(); i++) {
             SearchResultChunkDto chunk = contextChunks.get(i);
+            String chunkText = chunk.getText() != null && !chunk.getText().isBlank()
+                    ? chunk.getText()
+                    : (chunk.getContent() != null ? chunk.getContent() : "");
+            String docLabel = chunk.getDocumentName() != null && !chunk.getDocumentName().isBlank()
+                    ? chunk.getDocumentName()
+                    : (chunk.getFilePath() != null ? chunk.getFilePath() : "Document");
             retrievedChunks.append(String.format("[%d] %s (Page %d):\n%s\n\n",
-                    i + 1, chunk.getDocumentName(), chunk.getPageNumber(), chunk.getContent()));
+                    i + 1, docLabel, chunk.getPageNumber(), chunkText.trim()));
         }
 
         // Construct exact RAG synthesis prompt
@@ -63,6 +69,10 @@ public class OllamaLlmService implements LlmService {
                 "Context:\n" +
                 retrievedChunks.toString().trim() + "\n\n" +
                 "User Question: " + query;
+
+        System.out.println("=== RAG PROMPT CONTEXT SENT TO OLLAMA ===");
+        System.out.println(prompt);
+        System.out.println("=========================================");
 
         // Connect to local Ollama on loopback: http://127.0.0.1:11434/api/generate (model: phi3)
         try {

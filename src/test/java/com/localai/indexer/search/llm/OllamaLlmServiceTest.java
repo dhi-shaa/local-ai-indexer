@@ -58,4 +58,46 @@ public class OllamaLlmServiceTest {
             assertEquals("Ollama is not running locally. Please ensure Ollama is active on port 11434.", result.answer());
         }
     }
+
+    @Test
+    @DisplayName("Verify user-uploaded documents are boosted and prioritized over internal system docs")
+    public void testUserUploadedDocumentPriorityInMockService() {
+        MockPipelineBackendService service = MockPipelineBackendService.getInstance();
+        String fileName = "kerberos_authentication.pdf";
+        String chunkContent = "Kerberos is a network authentication protocol that works on the basis of tickets to allow nodes to prove their identity securely.";
+
+        com.localai.indexer.model.DocumentChunkDto userChunk = new com.localai.indexer.model.DocumentChunkDto(
+            "custom_kerberos_01",
+            fileName,
+            1,
+            "User PDF (" + fileName + ")",
+            chunkContent,
+            new double[32],
+            0.0,
+            0.0
+        );
+
+        service.registerIngestedDocument(
+            fileName,
+            1,
+            List.of(userChunk),
+            new com.localai.indexer.model.PipelineStageTiming(20, 10, 15, 5)
+        );
+
+        HybridSearchResultDto result = service.executeSearch("How does Kerberos authentication work?");
+        assertNotNull(result);
+        assertFalse(result.citations().isEmpty());
+
+        // First citation should be the user-uploaded document
+        assertEquals(fileName, result.citations().get(0).fileName());
+        assertTrue(result.citations().get(0).textSnippet().contains("Kerberos"));
+    }
+
+    @Test
+    @DisplayName("Verify SearchResultChunkDto getText accessor")
+    public void testSearchResultChunkDtoGetText() {
+        SearchResultChunkDto chunk = new SearchResultChunkDto();
+        chunk.setContent("Sample Plain Text Chunk Content");
+        assertEquals("Sample Plain Text Chunk Content", chunk.getText());
+    }
 }

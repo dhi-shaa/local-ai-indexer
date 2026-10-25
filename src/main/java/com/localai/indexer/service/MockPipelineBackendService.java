@@ -15,9 +15,11 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -101,9 +103,127 @@ public class MockPipelineBackendService {
         long startTime = System.currentTimeMillis();
         String qLower = query.toLowerCase();
 
-        List<SourceCitation> citations = new ArrayList<>();
-        String answer;
+        // Check if full Spring Boot HybridSearchEngine is active in current context
+        try {
+            if (com.localai.indexer.engine.LocalAiIndexerApplication.getContext() != null &&
+                com.localai.indexer.engine.LocalAiIndexerApplication.getContext().isActive()) {
+                com.localai.indexer.search.hybrid.HybridSearchEngine engine =
+                    com.localai.indexer.engine.LocalAiIndexerApplication.getBean(com.localai.indexer.search.hybrid.HybridSearchEngine.class);
+                if (engine != null) {
+                    com.localai.indexer.search.dto.SearchRequestDto req =
+                        new com.localai.indexer.search.dto.SearchRequestDto(query, 6, 0.5);
+                    req.setSynthesizeResponse(true);
+                    req.setSimilarityMetric("cosine");
+                    com.localai.indexer.search.dto.SearchResponseDto resp = engine.search(req);
+                    if (resp != null && resp.getChunks() != null && !resp.getChunks().isEmpty()) {
+                        List<SourceCitation> resCitations = new ArrayList<>();
+                        for (com.localai.indexer.search.dto.SearchResultChunkDto chunk : resp.getChunks()) {
+                            String docName = chunk.getDocumentName() != null ? chunk.getDocumentName() : chunk.getFilePath();
+                            resCitations.add(new SourceCitation(
+                                chunk.getChunkId(),
+                                docName,
+                                chunk.getPageNumber(),
+                                chunk.getHybridScore(),
+                                "Section from " + docName,
+                                chunk.getText()
+                            ));
+                        }
+                        long latency = System.currentTimeMillis() - startTime;
+                        return new HybridSearchResultDto(query, resp.getAiResponse(), latency, resCitations);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
 
+        // Standalone In-Process Matching with User-Document Priority Boosting
+        List<SourceCitation> citations = new ArrayList<>();
+        List<SourceCitation> userMatchedCitations = new ArrayList<>();
+        List<SourceCitation> systemMatchedCitations = new ArrayList<>();
+
+        String[] queryWords = qLower.split("\\s+");
+        Set<String> searchTerms = new HashSet<>();
+        for (String w : queryWords) {
+            String clean = w.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+            if (clean.length() >= 3) {
+                searchTerms.add(clean);
+            }
+        }
+
+        // Scan all indexed chunks (user documents and seeded knowledge base)
+        for (DocumentChunkDto chunk : indexedChunks) {
+            String text = chunk.textSnippet() != null ? chunk.textSnippet().toLowerCase() : "";
+            String name = chunk.fileName() != null ? chunk.fileName().toLowerCase() : "";
+            boolean isUserDoc = !chunk.chunkId().startsWith("chk_0") &&
+                !name.contains("docs/architecture") && !name.contains("docs/privacy") && !name.contains("specs/");
+
+            int matches = 0;
+            for (String term : searchTerms) {
+                if (text.contains(term)) matches += 2;
+                if (name.contains(term)) matches += 4;
+            }
+
+            if (matches > 0) {
+                double score = 0.82 + Math.min(0.16, matches * 0.03);
+                if (isUserDoc) {
+                    score += 0.25; // Priority boost for user-uploaded documents over internal system docs
+                    userMatchedCitations.add(new SourceCitation(
+                        chunk.chunkId(),
+                        chunk.fileName(),
+                        chunk.pageNumber(),
+                        score,
+                        "Matched section from " + chunk.fileName(),
+                        chunk.textSnippet()
+                    ));
+                } else {
+                    systemMatchedCitations.add(new SourceCitation(
+                        chunk.chunkId(),
+                        chunk.fileName(),
+                        chunk.pageNumber(),
+                        score,
+                        "Matched section from " + chunk.fileName(),
+                        chunk.textSnippet()
+                    ));
+                }
+            }
+        }
+
+        userMatchedCitations.sort((a, b) -> Double.compare(b.score(), a.score()));
+        systemMatchedCitations.sort((a, b) -> Double.compare(b.score(), a.score()));
+
+        // Prioritize user document citations first
+        citations.addAll(userMatchedCitations);
+
+        // Fill remaining citations with matching system citations if under 6
+        if (citations.size() < 6) {
+            for (SourceCitation sc : systemMatchedCitations) {
+                if (citations.stream().noneMatch(c -> c.chunkId().equals(sc.chunkId()))) {
+                    citations.add(sc);
+                    if (citations.size() >= 6) break;
+                }
+            }
+        }
+
+        // Backfill with category defaults if still under 6
+        if (citations.size() < 6) {
+            List<SourceCitation> fallbackList = getFallbackCitations(qLower);
+            for (SourceCitation sc : fallbackList) {
+                if (citations.stream().noneMatch(c -> c.chunkId().equals(sc.chunkId()))) {
+                    citations.add(sc);
+                    if (citations.size() >= 6) break;
+                }
+            }
+        }
+
+        // Limit to top 6 citations for synthesis
+        List<SourceCitation> top6Citations = citations.subList(0, Math.min(6, citations.size()));
+        String answer = synthesizeWithLocalOllama(query, top6Citations);
+
+        long latency = System.currentTimeMillis() - startTime + 38 + random.nextInt(20);
+        return new HybridSearchResultDto(query, answer, latency, citations);
+    }
+
+    private List<SourceCitation> getFallbackCitations(String qLower) {
+        List<SourceCitation> citations = new ArrayList<>();
         if (qLower.contains("privacy") || qLower.contains("network") || qLower.contains("offline") || qLower.contains("airgap")) {
             citations.add(new SourceCitation(
                 "chk_priv_01",
@@ -153,7 +273,6 @@ public class MockPipelineBackendService {
                 "Local Query Pipeline",
                 "All vector similarity computations and BM25 queries execute strictly inside the workstation memory."
             ));
-            answer = synthesizeWithLocalOllama(query, citations);
         } else if (qLower.contains("embed") || qLower.contains("pca") || qLower.contains("vector") || qLower.contains("dimension")) {
             citations.add(new SourceCitation(
                 "chk_vec_01",
@@ -203,7 +322,6 @@ public class MockPipelineBackendService {
                 "Dense Retrieval Fusion",
                 "Normalized vector cosine similarity fuses with BM25 inverted index for robust recall."
             ));
-            answer = synthesizeWithLocalOllama(query, citations);
         } else {
             citations.add(new SourceCitation(
                 "chk_hyb_01",
@@ -253,37 +371,8 @@ public class MockPipelineBackendService {
                 "PCA Dimensionality Mapping",
                 "Covariance matrix power iteration projects high-dimensional vectors to 2D scatter coordinates for visual space exploration."
             ));
-
-            answer = synthesizeWithLocalOllama(query, citations);
         }
- 
-        // Also check if any custom indexed chunks match the query
-        for (DocumentChunkDto chunk : indexedChunks) {
-            if (chunk.textSnippet() != null && !chunk.chunkId().startsWith("chk_0")) {
-                String[] words = qLower.split("\\s+");
-                boolean matched = false;
-                for (String w : words) {
-                    if (w.length() > 3 && chunk.textSnippet().toLowerCase().contains(w)) {
-                        matched = true;
-                        break;
-                    }
-                }
-                if (matched) {
-                    citations.add(0, new SourceCitation(
-                        chunk.chunkId(),
-                        chunk.fileName(),
-                        chunk.pageNumber(),
-                        0.96,
-                        "Matched section from " + chunk.fileName(),
-                        chunk.textSnippet()
-                    ));
-                    if (citations.size() > 5) break;
-                }
-            }
-        }
-
-        long latency = System.currentTimeMillis() - startTime + 38 + random.nextInt(20);
-        return new HybridSearchResultDto(query, answer, latency, citations);
+        return citations;
     }
 
     private String synthesizeWithLocalOllama(String query, List<SourceCitation> citations) {
@@ -299,6 +388,10 @@ public class MockPipelineBackendService {
             "Context:\n" +
             retrievedChunks.toString().trim() + "\n\n" +
             "User Question: " + query;
+
+        System.out.println("=== RAG PROMPT CONTEXT SENT TO OLLAMA ===");
+        System.out.println(prompt);
+        System.out.println("=========================================");
 
         try {
             HttpClient client = HttpClient.newBuilder()
