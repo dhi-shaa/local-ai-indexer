@@ -4,6 +4,7 @@ import com.localai.indexer.ui.chat.ChatInterfaceView;
 import com.localai.indexer.ui.dashboard.PipelineDashboardView;
 import com.localai.indexer.ui.visualize.EmbeddingVisualizationView;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -16,6 +17,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 
 /**
  * JavaFX Application Shell for Local AI Indexer.
@@ -28,6 +30,9 @@ public class LocalAiApp extends Application {
 
     @Override
     public void start(Stage primaryStage) {
+        // Ensure Primary Stage uses native OS window decorations with title bar controls (Minimize, Maximize/Restore, Close)
+        primaryStage.initStyle(StageStyle.DECORATED);
+        primaryStage.setFullScreen(false);
         primaryStage.setTitle("Local AI Privacy Indexer & Vector Search");
 
         BorderPane root = new BorderPane();
@@ -66,7 +71,7 @@ public class LocalAiApp extends Application {
         HBox statusBar = createStatusBar();
         root.setBottom(statusBar);
 
-        Scene scene = new Scene(root, 1280, 840);
+        Scene scene = new Scene(root, 1280, 820);
 
         // Load custom theme stylesheet if present
         try {
@@ -78,16 +83,29 @@ public class LocalAiApp extends Application {
         } catch (Exception ignored) {}
 
         primaryStage.setScene(scene);
+        primaryStage.setWidth(1280);
+        primaryStage.setHeight(820);
         primaryStage.setMinWidth(1000);
         primaryStage.setMinHeight(700);
 
         primaryStage.setOnCloseRequest(e -> {
-            if (dashboardView != null) {
-                dashboardView.stopFeed();
-            }
+            shutdownApp();
         });
 
         primaryStage.show();
+    }
+
+    @Override
+    public void stop() {
+        shutdownApp();
+    }
+
+    private void shutdownApp() {
+        if (dashboardView != null) {
+            dashboardView.stopFeed();
+        }
+        Platform.exit();
+        System.exit(0);
     }
 
     private HBox createAppHeader() {
