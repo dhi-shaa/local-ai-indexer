@@ -53,6 +53,17 @@ public class EmbeddingVisualizationView extends BorderPane {
 
         // Initial PCA load
         runPca();
+
+        // Listen for scene attachment to trigger render when shown
+        sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene != null) {
+                javafx.application.Platform.runLater(() -> {
+                    if (canvas != null) {
+                        canvas.render();
+                    }
+                });
+            }
+        });
     }
 
     private HBox createToolbar() {

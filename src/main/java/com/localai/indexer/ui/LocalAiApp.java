@@ -63,6 +63,11 @@ public class LocalAiApp extends Application {
         // Tab 3: 2D Embedding Map
         EmbeddingVisualizationView visualizerView = new EmbeddingVisualizationView();
         Tab visualizerTab = new Tab("🌐 2D Embedding Map (PCA)", visualizerView);
+        visualizerTab.selectedProperty().addListener((obs, was, isSel) -> {
+            if (isSel) {
+                Platform.runLater(visualizerView::runPca);
+            }
+        });
 
         tabPane.getTabs().addAll(chatTab, dashboardTab, visualizerTab);
         root.setCenter(tabPane);
