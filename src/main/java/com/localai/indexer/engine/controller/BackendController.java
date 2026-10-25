@@ -32,7 +32,7 @@ public class BackendController {
         return ResponseEntity.ok(backendService.getStatus());
     }
 
-    @PostMapping("/index")
+    @PostMapping({"/index", "/ingest"})
     public ResponseEntity<IndexResponseDto> indexDocument(@RequestBody IndexRequestDto request) {
         IndexResponseDto response = backendService.indexDocument(request);
         if (response.isSuccess()) {
@@ -50,6 +50,11 @@ public class BackendController {
     @GetMapping("/documents")
     public ResponseEntity<List<Map<String, Object>>> listDocuments() {
         return ResponseEntity.ok(backendService.listDocuments());
+    }
+
+    @GetMapping("/documents/{id}/chunks")
+    public ResponseEntity<List<com.localai.indexer.ingestion.model.DocumentChunk>> getDocumentChunks(@PathVariable("id") String id) {
+        return ResponseEntity.ok(backendService.getDocumentChunks(id));
     }
 
     @DeleteMapping("/documents/{id}")

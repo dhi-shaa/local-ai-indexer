@@ -37,7 +37,12 @@ public class PcaReducer {
 
         long startTime = System.currentTimeMillis();
         int n = chunks.size();
-        int d = chunks.get(0).embedding().length;
+        int d = 0;
+        for (DocumentChunkDto c : chunks) {
+            if (c.embedding() != null && c.embedding().length > d) {
+                d = c.embedding().length;
+            }
+        }
 
         // If only 1 chunk or 0 dimensions
         if (n == 1 || d == 0) {

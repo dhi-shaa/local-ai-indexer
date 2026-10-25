@@ -69,6 +69,16 @@ public class LocalAiApp extends Application {
             }
         });
 
+        // Wire document indexing callback to automatically refresh PCA scatter plot & Pipeline Dashboard
+        chatView.setOnDocumentIndexedListener((fileName, chunksCount, timing) -> {
+            Platform.runLater(() -> {
+                visualizerView.runPca();
+                if (dashboardView != null) {
+                    dashboardView.recordNewDocumentIngested(fileName, chunksCount, timing);
+                }
+            });
+        });
+
         tabPane.getTabs().addAll(chatTab, dashboardTab, visualizerTab);
         root.setCenter(tabPane);
 

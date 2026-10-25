@@ -136,6 +136,10 @@ public class BackendService {
         return vectorRepository.listIndexedDocuments();
     }
 
+    public List<com.localai.indexer.ingestion.model.DocumentChunk> getDocumentChunks(String documentId) {
+        return vectorRepository.findByDocumentId(documentId);
+    }
+
     public boolean deleteDocument(String documentId) {
         int deleted = vectorRepository.deleteByDocumentId(documentId);
         hybridSearchEngine.refreshBM25Index();

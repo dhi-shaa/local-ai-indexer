@@ -84,6 +84,28 @@ public class UiComponentsSmokeTest {
         });
     }
 
+    @Test
+    public void testDocumentIngestionService() throws Exception {
+        java.io.File sampleDoc = new java.io.File("src/test/resources/sample_privacy_doc.txt");
+        assertTrue(sampleDoc.exists(), "Sample doc must exist for ingestion test");
+
+        com.localai.indexer.service.DocumentIngestionService.IngestionResult result = 
+            com.localai.indexer.service.DocumentIngestionService.getInstance().ingestFile(sampleDoc);
+        assertTrue(result.success(), "Ingestion should succeed");
+        assertTrue(result.chunksCount() > 0, "Chunks count should be > 0");
+        assertNotNull(result.timing());
+        assertEquals("sample_privacy_doc.txt", result.fileName());
+    }
+
+    @Test
+    public void testChatInterfaceToastNotification() throws Exception {
+        runOnFxThread(() -> {
+            ChatInterfaceView chatView = new ChatInterfaceView();
+            chatView.showToast("Document [sample.txt] successfully indexed (5 chunks created).");
+            assertNotNull(chatView);
+        });
+    }
+
     private void runOnFxThread(Runnable action) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();

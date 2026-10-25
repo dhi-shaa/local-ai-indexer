@@ -22,6 +22,7 @@ public class MockPipelineBackendService {
     private final Random random = new Random(42);
     private final List<Consumer<PipelineMetricsDto>> metricsListeners = new CopyOnWriteArrayList<>();
     private final List<DocumentChunkDto> indexedChunks = new ArrayList<>();
+    private int customIndexedCount = 0;
 
     public static MockPipelineBackendService getInstance() {
         return INSTANCE;
@@ -62,7 +63,7 @@ public class MockPipelineBackendService {
         double throughputDocsPerSec = 14.5 + (random.nextDouble() * 8.0);
         double embeddingLatencyMs = embedMs + (random.nextDouble() * 5.0);
         int activeDocs = 12 + (step % 20);
-        int totalIndexed = 250 + (step * 8);
+        int totalIndexed = 250 + (step * 8) + customIndexedCount;
         double memMb = 142.0 + (random.nextDouble() * 20.0);
 
         PipelineMetricsDto metrics = new PipelineMetricsDto(
@@ -165,6 +166,31 @@ public class MockPipelineBackendService {
                 "Multi-threaded pipeline achieves >15 docs/sec ingestion throughput with per-stage telemetry tracking parse, chunk, embed, and store phases."
             ));
         }
+ 
+        // Also check if any custom indexed chunks match the query
+        for (DocumentChunkDto chunk : indexedChunks) {
+            if (chunk.textSnippet() != null && !chunk.chunkId().startsWith("chk_0")) {
+                String[] words = qLower.split("\\s+");
+                boolean matched = false;
+                for (String w : words) {
+                    if (w.length() > 3 && chunk.textSnippet().toLowerCase().contains(w)) {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched) {
+                    citations.add(0, new SourceCitation(
+                        chunk.chunkId(),
+                        chunk.fileName(),
+                        chunk.pageNumber(),
+                        0.96,
+                        "Matched section from " + chunk.fileName(),
+                        chunk.textSnippet()
+                    ));
+                    if (citations.size() > 5) break;
+                }
+            }
+        }
 
         long latency = System.currentTimeMillis() - startTime + 38 + random.nextInt(20);
         return new HybridSearchResultDto(query, answer, latency, citations);
@@ -212,7 +238,31 @@ public class MockPipelineBackendService {
         }
     }
 
-    public List<DocumentChunkDto> getIndexedChunks() {
+    public synchronized void registerIngestedDocument(String fileName, int chunkCount, List<DocumentChunkDto> newChunks, PipelineStageTiming timing) {
+        if (newChunks != null && !newChunks.isEmpty()) {
+            indexedChunks.addAll(newChunks);
+        }
+        this.customIndexedCount += chunkCount;
+
+        if (timing != null) {
+            PipelineMetricsDto frame = new PipelineMetricsDto(
+                18.0,
+                timing.embedLatencyMs(),
+                timing,
+                1,
+                250 + customIndexedCount,
+                156.0,
+                fileName
+            );
+            for (Consumer<PipelineMetricsDto> listener : metricsListeners) {
+                try {
+                    listener.accept(frame);
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    public synchronized List<DocumentChunkDto> getIndexedChunks() {
         return new ArrayList<>(indexedChunks);
     }
 }

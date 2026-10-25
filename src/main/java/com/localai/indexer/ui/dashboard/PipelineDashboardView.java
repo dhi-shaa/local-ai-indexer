@@ -293,6 +293,41 @@ public class PipelineDashboardView extends ScrollPane {
         });
     }
 
+    public void recordNewDocumentIngested(String fileName, int chunksCount, PipelineStageTiming timing) {
+        Platform.runLater(() -> {
+            int currentTotal = 0;
+            try {
+                currentTotal = Integer.parseInt(totalIndexedValLabel.getText().replace(",", ""));
+            } catch (Exception ignored) {}
+            int newTotal = currentTotal + chunksCount;
+            totalIndexedValLabel.setText(String.format("%,d", newTotal));
+            currentDocLabel.setText(fileName + " (Indexed " + chunksCount + " chunks)");
+
+            if (timing != null) {
+                long total = Math.max(1, timing.totalLatencyMs());
+
+                parseTimingLabel.setText(timing.parseLatencyMs() + " ms");
+                parseProgressBar.setProgress((double) timing.parseLatencyMs() / total);
+
+                chunkTimingLabel.setText(timing.chunkLatencyMs() + " ms");
+                chunkProgressBar.setProgress((double) timing.chunkLatencyMs() / total);
+
+                embedTimingLabel.setText(timing.embedLatencyMs() + " ms");
+                embedProgressBar.setProgress((double) timing.embedLatencyMs() / total);
+
+                storeTimingLabel.setText(timing.storeLatencyMs() + " ms");
+                storeProgressBar.setProgress((double) timing.storeLatencyMs() / total);
+
+                if (stageSeries != null && stageSeries.getData().size() >= 4) {
+                    stageSeries.getData().get(0).setYValue(timing.parseLatencyMs());
+                    stageSeries.getData().get(1).setYValue(timing.chunkLatencyMs());
+                    stageSeries.getData().get(2).setYValue(timing.embedLatencyMs());
+                    stageSeries.getData().get(3).setYValue(timing.storeLatencyMs());
+                }
+            }
+        });
+    }
+
     public void stopFeed() {
         if (liveTimeline != null) {
             liveTimeline.stop();
