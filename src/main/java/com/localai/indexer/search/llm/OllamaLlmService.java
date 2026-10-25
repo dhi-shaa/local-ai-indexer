@@ -34,12 +34,12 @@ public class OllamaLlmService implements LlmService {
     public OllamaLlmService(
             @Value("${ollama.base-url:http://127.0.0.1:11434}") String baseUrl,
             @Value("${ollama.chat-model:phi3}") String chatModel,
-            @Value("${ollama.timeout-seconds:60}") int timeoutSeconds) {
+            @Value("${ollama.timeout-seconds:120}") int timeoutSeconds) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.chatModel = chatModel;
-        this.timeoutSeconds = timeoutSeconds;
+        this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 120;
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(Math.min(5, timeoutSeconds)))
+                .connectTimeout(Duration.ofSeconds(120))
                 .build();
         this.objectMapper = new ObjectMapper();
     }

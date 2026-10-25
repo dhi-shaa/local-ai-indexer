@@ -302,7 +302,7 @@ public class MockPipelineBackendService {
 
         try {
             HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(2))
+                .connectTimeout(Duration.ofSeconds(120))
                 .build();
 
             Map<String, Object> body = new HashMap<>();
@@ -316,7 +316,7 @@ public class MockPipelineBackendService {
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://127.0.0.1:11434/api/generate"))
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(15))
+                .timeout(Duration.ofSeconds(120))
                 .POST(HttpRequest.BodyPublishers.ofString(requestJson))
                 .build();
 

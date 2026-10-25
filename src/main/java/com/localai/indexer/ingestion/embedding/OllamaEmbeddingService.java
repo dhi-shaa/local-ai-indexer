@@ -32,14 +32,14 @@ public class OllamaEmbeddingService implements EmbeddingService {
     private final int timeoutSeconds;
 
     public OllamaEmbeddingService(
-            @Value("${ollama.base-url:http://localhost:11434}") String baseUrl,
+            @Value("${ollama.base-url:http://127.0.0.1:11434}") String baseUrl,
             @Value("${ollama.embedding-model:nomic-embed-text}") String modelName,
-            @Value("${ollama.timeout-seconds:30}") int timeoutSeconds) {
+            @Value("${ollama.timeout-seconds:120}") int timeoutSeconds) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.modelName = modelName;
-        this.timeoutSeconds = timeoutSeconds;
+        this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 120;
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(Math.min(5, timeoutSeconds)))
+                .connectTimeout(Duration.ofSeconds(120))
                 .build();
         this.objectMapper = new ObjectMapper();
     }
