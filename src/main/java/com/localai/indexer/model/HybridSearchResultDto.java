@@ -10,4 +10,8 @@ public record HybridSearchResultDto(
     String answer,
     long latencyMs,
     List<SourceCitation> citations
-) {}
+) {
+    public String aiResponse() {
+        return answer;
+    }
+}

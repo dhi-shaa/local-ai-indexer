@@ -32,8 +32,8 @@ public class OllamaLlmService implements LlmService {
     private final int timeoutSeconds;
 
     public OllamaLlmService(
-            @Value("${ollama.base-url:http://localhost:11434}") String baseUrl,
-            @Value("${ollama.chat-model:llama3.2}") String chatModel,
+            @Value("${ollama.base-url:http://127.0.0.1:11434}") String baseUrl,
+            @Value("${ollama.chat-model:phi3}") String chatModel,
             @Value("${ollama.timeout-seconds:60}") int timeoutSeconds) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.chatModel = chatModel;
@@ -50,70 +50,50 @@ public class OllamaLlmService implements LlmService {
             return "No relevant local documents found for query: \"" + query + "\".";
         }
 
-        // Build context prompt with explicit source and page citations
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are an assistant answering queries strictly using the provided local private document context.\n");
-        prompt.append("CONTEXT:\n");
-        for (SearchResultChunkDto chunk : contextChunks) {
-            prompt.append(String.format("[Document: %s | Page: %d | Chunk: %d]\n%s\n\n",
-                    chunk.getDocumentName(), chunk.getPageNumber(), chunk.getChunkIndex(), chunk.getContent()));
+        // Construct {retrieved_chunks} from top retrieved document chunk excerpts
+        StringBuilder retrievedChunks = new StringBuilder();
+        for (int i = 0; i < contextChunks.size(); i++) {
+            SearchResultChunkDto chunk = contextChunks.get(i);
+            retrievedChunks.append(String.format("[%d] %s (Page %d):\n%s\n\n",
+                    i + 1, chunk.getDocumentName(), chunk.getPageNumber(), chunk.getContent()));
         }
-        prompt.append("QUESTION: ").append(query).append("\n");
-        prompt.append("INSTRUCTIONS: Provide a clear, factual answer synthesized from the context. Always cite document name and page number.\n");
 
-        // Try local Ollama generation first
-        if (isAvailable()) {
-            try {
-                Map<String, Object> body = new HashMap<>();
-                body.put("model", chatModel);
-                body.put("prompt", prompt.toString());
-                body.put("stream", false);
+        // Construct exact RAG synthesis prompt
+        String prompt = "You are an offline assistant. Using ONLY the document excerpts provided below, answer the user's question clearly and concisely.\n" +
+                "Context:\n" +
+                retrievedChunks.toString().trim() + "\n\n" +
+                "User Question: " + query;
 
-                String requestJson = objectMapper.writeValueAsString(body);
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "/api/generate"))
-                        .header("Content-Type", "application/json")
-                        .timeout(Duration.ofSeconds(timeoutSeconds))
-                        .POST(HttpRequest.BodyPublishers.ofString(requestJson))
-                        .build();
+        // Connect to local Ollama on loopback: http://127.0.0.1:11434/api/generate (model: phi3)
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", chatModel);
+            body.put("prompt", prompt);
+            body.put("stream", false);
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    JsonNode node = objectMapper.readTree(response.body());
-                    if (node.has("response")) {
-                        return node.get("response").asText().trim();
+            String requestJson = objectMapper.writeValueAsString(body);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/generate"))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                JsonNode node = objectMapper.readTree(response.body());
+                if (node.has("response")) {
+                    String answer = node.get("response").asText().trim();
+                    if (!answer.isEmpty()) {
+                        return answer;
                     }
                 }
-            } catch (Exception e) {
-                log.warn("Ollama synthesis failed: {}. Falling back to local extractive synthesis.", e.getMessage());
             }
+            return "Ollama is not running locally. Please ensure Ollama is active on port 11434.";
+        } catch (Exception e) {
+            log.warn("Ollama is unreachable on {}: {}", baseUrl, e.getMessage());
+            return "Ollama is not running locally. Please ensure Ollama is active on port 11434.";
         }
-
-        // Resilient fallback: Extractive local synthesis from top chunks
-        return fallbackLocalSynthesis(query, contextChunks);
-    }
-
-    private String fallbackLocalSynthesis(String query, List<SearchResultChunkDto> chunks) {
-        SearchResultChunkDto topChunk = chunks.get(0);
-        StringBuilder sb = new StringBuilder();
-        sb.append("Based on the indexed document ").append(topChunk.getDocumentName());
-        sb.append(" (Page ").append(topChunk.getPageNumber()).append("):\n\n");
-
-        // Select the most informative passage
-        String content = topChunk.getContent().trim();
-        sb.append(content);
-
-        if (chunks.size() > 1) {
-            sb.append("\n\nAdditional supporting evidence found in ");
-            Set<String> extraRefs = new LinkedHashSet<>();
-            for (int i = 1; i < chunks.size(); i++) {
-                SearchResultChunkDto c = chunks.get(i);
-                extraRefs.add(String.format("%s (Page %d)", c.getDocumentName(), c.getPageNumber()));
-            }
-            sb.append(String.join(", ", extraRefs)).append(".");
-        }
-
-        return sb.toString();
     }
 
     @Override

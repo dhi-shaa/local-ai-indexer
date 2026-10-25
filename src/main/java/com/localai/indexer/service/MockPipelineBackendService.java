@@ -1,13 +1,22 @@
 package com.localai.indexer.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.localai.indexer.model.DocumentChunkDto;
 import com.localai.indexer.model.HybridSearchResultDto;
 import com.localai.indexer.model.PipelineMetricsDto;
 import com.localai.indexer.model.PipelineStageTiming;
 import com.localai.indexer.model.SourceCitation;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
@@ -96,7 +105,6 @@ public class MockPipelineBackendService {
         String answer;
 
         if (qLower.contains("privacy") || qLower.contains("network") || qLower.contains("offline") || qLower.contains("airgap")) {
-            answer = "Local AI Indexer enforces a strict zero-outbound air-gap policy. All document parsing (Apache Tika), chunking, and embedding generation occur strictly in-memory on the local CPU/GPU using embedded ONNX models and local H2 vector store. Zero remote calls or telemetry are transmitted.";
             citations.add(new SourceCitation(
                 "chk_priv_01",
                 "docs/privacy/local-airgap-policy.pdf",
@@ -121,8 +129,32 @@ public class MockPipelineBackendService {
                 "Class: LocalPrivacyService",
                 "Monitors network sockets, confirms active interfaces, and maintains cryptographic audit proofs verifying zero outbound network transmission."
             ));
+            citations.add(new SourceCitation(
+                "chk_priv_04",
+                "docs/privacy/security-audit-v1.pdf",
+                2,
+                0.86,
+                "Audit Verification",
+                "Cryptographic checksums verify zero outbound transmission across all active physical network interfaces."
+            ));
+            citations.add(new SourceCitation(
+                "chk_priv_05",
+                "docs/privacy/local-airgap-policy.pdf",
+                2,
+                0.84,
+                "Socket Interception",
+                "Security manager blocks external host resolution, enforcing localhost loopback constraints."
+            ));
+            citations.add(new SourceCitation(
+                "chk_priv_06",
+                "docs/architecture/ADR-001-hybrid-search.md",
+                1,
+                0.81,
+                "Local Query Pipeline",
+                "All vector similarity computations and BM25 queries execute strictly inside the workstation memory."
+            ));
+            answer = synthesizeWithLocalOllama(query, citations);
         } else if (qLower.contains("embed") || qLower.contains("pca") || qLower.contains("vector") || qLower.contains("dimension")) {
-            answer = "High-dimensional embeddings (384-dim from local models) are stored in embedded H2 database using vector extension tables. For 2D visualization, a pure Java Principal Component Analysis (PCA) algorithm calculates the top 2 eigenvectors via covariance matrix power iteration to map vector spaces interactively.";
             citations.add(new SourceCitation(
                 "chk_vec_01",
                 "specs/vector-h2-engine-spec.pdf",
@@ -139,8 +171,40 @@ public class MockPipelineBackendService {
                 "Principal Component Reduction Design",
                 "Interactive visual analysis reduces high-dimensional vector embeddings to 2D coordinates using covariance matrix decomposition and power iteration without external native math libraries."
             ));
+            citations.add(new SourceCitation(
+                "chk_vec_03",
+                "specs/h2-vector-schema-p1.sql",
+                1,
+                0.89,
+                "H2 Vector Table Schema",
+                "Custom SQL ALIAS functions COSINE_SIMILARITY and DOT_PRODUCT calculate similarity directly in H2 SQL queries."
+            ));
+            citations.add(new SourceCitation(
+                "chk_vec_04",
+                "src/ui/visualize/CanvasRenderer-1.java",
+                2,
+                0.86,
+                "PCA Visualization Canvas",
+                "Scatter plot renders PCA coordinates dynamically with zoom, pan, and cluster color palettes."
+            ));
+            citations.add(new SourceCitation(
+                "chk_vec_05",
+                "src/core/nlp/TokenEmbedder-1.java",
+                3,
+                0.84,
+                "Local Token Embedding",
+                "Dense vector generation runs purely in-process via ONNX or Ollama with zero external telemetry."
+            ));
+            citations.add(new SourceCitation(
+                "chk_vec_06",
+                "docs/architecture/ADR-001-hybrid-search.md",
+                1,
+                0.82,
+                "Dense Retrieval Fusion",
+                "Normalized vector cosine similarity fuses with BM25 inverted index for robust recall."
+            ));
+            answer = synthesizeWithLocalOllama(query, citations);
         } else {
-            answer = "Hybrid search synthesizes dense vector similarity (cosine distance on H2 vector tables) with BM25 sparse keyword matching to retrieve high-precision document chunks with source metadata and page provenance.";
             citations.add(new SourceCitation(
                 "chk_hyb_01",
                 "docs/architecture/ADR-001-hybrid-search.md",
@@ -165,6 +229,32 @@ public class MockPipelineBackendService {
                 "Pipeline Ingestion Benchmarks",
                 "Multi-threaded pipeline achieves >15 docs/sec ingestion throughput with per-stage telemetry tracking parse, chunk, embed, and store phases."
             ));
+            citations.add(new SourceCitation(
+                "chk_hyb_04",
+                "specs/vector-h2-engine-spec.pdf",
+                2,
+                0.84,
+                "H2 Embedded Vector Store",
+                "Embedded H2 vector tables calculate cosine distance directly using native in-engine SQL ALIAS functions without cloud dependencies."
+            ));
+            citations.add(new SourceCitation(
+                "chk_hyb_05",
+                "docs/privacy/local-airgap-policy.pdf",
+                2,
+                0.82,
+                "Air-Gap Verification Protocol",
+                "Strict local containment guarantees all inferences and search queries execute on localhost loopback with zero external telemetry."
+            ));
+            citations.add(new SourceCitation(
+                "chk_hyb_06",
+                "docs/architecture/ADR-004-pca-reduction.md",
+                1,
+                0.80,
+                "PCA Dimensionality Mapping",
+                "Covariance matrix power iteration projects high-dimensional vectors to 2D scatter coordinates for visual space exploration."
+            ));
+
+            answer = synthesizeWithLocalOllama(query, citations);
         }
  
         // Also check if any custom indexed chunks match the query
@@ -194,6 +284,56 @@ public class MockPipelineBackendService {
 
         long latency = System.currentTimeMillis() - startTime + 38 + random.nextInt(20);
         return new HybridSearchResultDto(query, answer, latency, citations);
+    }
+
+    private String synthesizeWithLocalOllama(String query, List<SourceCitation> citations) {
+        StringBuilder retrievedChunks = new StringBuilder();
+        int limit = Math.min(6, citations.size());
+        for (int i = 0; i < limit; i++) {
+            SourceCitation c = citations.get(i);
+            retrievedChunks.append(String.format("[%d] %s (Page %d):\n%s\n\n",
+                i + 1, c.fileName(), c.pageNumber(), c.textSnippet()));
+        }
+
+        String prompt = "You are an offline assistant. Using ONLY the document excerpts provided below, answer the user's question clearly and concisely.\n" +
+            "Context:\n" +
+            retrievedChunks.toString().trim() + "\n\n" +
+            "User Question: " + query;
+
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(2))
+                .build();
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", "phi3");
+            body.put("prompt", prompt);
+            body.put("stream", false);
+
+            ObjectMapper mapper = new ObjectMapper();
+            String requestJson = mapper.writeValueAsString(body);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:11434/api/generate"))
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                JsonNode node = mapper.readTree(response.body());
+                if (node.has("response")) {
+                    String ans = node.get("response").asText().trim();
+                    if (!ans.isEmpty()) {
+                        return ans;
+                    }
+                }
+            }
+            return "Ollama is not running locally. Please ensure Ollama is active on port 11434.";
+        } catch (Exception e) {
+            return "Ollama is not running locally. Please ensure Ollama is active on port 11434.";
+        }
     }
 
     /**

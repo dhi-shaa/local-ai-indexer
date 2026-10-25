@@ -147,7 +147,7 @@ public class HybridSearchEngine {
         }
         long synthesisLatency = System.currentTimeMillis() - tSynthStart;
 
-        return new SearchResponseDto(
+        SearchResponseDto responseDto = new SearchResponseDto(
                 query,
                 synthesizedResponse,
                 topChunks,
@@ -157,5 +157,7 @@ public class HybridSearchEngine {
                 synthesisLatency,
                 llmService.getModelName()
         );
+        responseDto.setAiResponse(synthesizedResponse);
+        return responseDto;
     }
 }

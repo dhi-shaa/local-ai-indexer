@@ -2,7 +2,7 @@ package com.localai.indexer.search.dto;
 
 public class SearchRequestDto {
     private String query;
-    private int topK = 5;
+    private int topK = 6;
     private double alpha = 0.5; // 0.0 = BM25 only, 1.0 = Vector only, 0.5 = Balanced Hybrid
     private String similarityMetric = "cosine"; // cosine, dot, euclidean
     private boolean synthesizeResponse = true;

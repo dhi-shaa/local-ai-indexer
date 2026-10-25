@@ -10,6 +10,7 @@ import java.util.List;
 public class SearchResponseDto {
     private String query;
     private String synthesizedResponse;
+    private String aiResponse;
     private List<SearchResultChunkDto> chunks;
     private List<String> sourceFilePaths;
     private List<Integer> pageNumbers;
@@ -29,6 +30,7 @@ public class SearchResponseDto {
                              long searchLatencyMs, long synthesisLatencyMs, String modelUsed) {
         this.query = query;
         this.synthesizedResponse = synthesizedResponse;
+        this.aiResponse = synthesizedResponse;
         this.chunks = chunks != null ? chunks : new ArrayList<>();
         this.sourceFilePaths = sourceFilePaths != null ? sourceFilePaths : new ArrayList<>();
         this.pageNumbers = pageNumbers != null ? pageNumbers : new ArrayList<>();
@@ -52,6 +54,16 @@ public class SearchResponseDto {
 
     public void setSynthesizedResponse(String synthesizedResponse) {
         this.synthesizedResponse = synthesizedResponse;
+        this.aiResponse = synthesizedResponse;
+    }
+
+    public String getAiResponse() {
+        return aiResponse != null ? aiResponse : synthesizedResponse;
+    }
+
+    public void setAiResponse(String aiResponse) {
+        this.aiResponse = aiResponse;
+        this.synthesizedResponse = aiResponse;
     }
 
     public List<SearchResultChunkDto> getChunks() {
