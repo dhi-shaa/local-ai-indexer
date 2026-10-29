@@ -6,6 +6,7 @@ public class SearchRequestDto {
     private double alpha = 0.5; // 0.0 = BM25 only, 1.0 = Vector only, 0.5 = Balanced Hybrid
     private String similarityMetric = "cosine"; // cosine, dot, euclidean
     private boolean synthesizeResponse = true;
+    private double minScore = 0.0;
 
     public SearchRequestDto() {}
 
@@ -53,5 +54,13 @@ public class SearchRequestDto {
 
     public void setSynthesizeResponse(boolean synthesizeResponse) {
         this.synthesizeResponse = synthesizeResponse;
+    }
+
+    public double getMinScore() {
+        return minScore;
+    }
+
+    public void setMinScore(double minScore) {
+        this.minScore = minScore;
     }
 }

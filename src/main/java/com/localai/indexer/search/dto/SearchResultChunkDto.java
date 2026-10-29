@@ -9,6 +9,8 @@ public class SearchResultChunkDto {
     private String filePath;
     private String documentName;
     private int pageNumber;
+    private int startPageNumber;
+    private int endPageNumber;
     private int chunkIndex;
     private String content;
     private double vectorScore;
@@ -20,11 +22,19 @@ public class SearchResultChunkDto {
     public SearchResultChunkDto(String chunkId, String documentId, String filePath, String documentName,
                                 int pageNumber, int chunkIndex, String content,
                                 double vectorScore, double bm25Score, double hybridScore) {
+        this(chunkId, documentId, filePath, documentName, pageNumber, pageNumber, chunkIndex, content, vectorScore, bm25Score, hybridScore);
+    }
+
+    public SearchResultChunkDto(String chunkId, String documentId, String filePath, String documentName,
+                                int startPageNumber, int endPageNumber, int chunkIndex, String content,
+                                double vectorScore, double bm25Score, double hybridScore) {
         this.chunkId = chunkId;
         this.documentId = documentId;
         this.filePath = filePath;
         this.documentName = documentName;
-        this.pageNumber = pageNumber;
+        this.pageNumber = startPageNumber;
+        this.startPageNumber = startPageNumber;
+        this.endPageNumber = endPageNumber;
         this.chunkIndex = chunkIndex;
         this.content = content;
         this.vectorScore = vectorScore;
@@ -70,6 +80,35 @@ public class SearchResultChunkDto {
 
     public void setPageNumber(int pageNumber) {
         this.pageNumber = pageNumber;
+        if (this.startPageNumber <= 0) this.startPageNumber = pageNumber;
+        if (this.endPageNumber <= 0) this.endPageNumber = pageNumber;
+    }
+
+    public int getStartPageNumber() {
+        return startPageNumber > 0 ? startPageNumber : pageNumber;
+    }
+
+    public void setStartPageNumber(int startPageNumber) {
+        this.startPageNumber = startPageNumber;
+        if (this.pageNumber <= 0) this.pageNumber = startPageNumber;
+    }
+
+    public int getEndPageNumber() {
+        return endPageNumber > 0 ? endPageNumber : (startPageNumber > 0 ? startPageNumber : pageNumber);
+    }
+
+    public void setEndPageNumber(int endPageNumber) {
+        this.endPageNumber = endPageNumber;
+    }
+
+    public String getPageLabel() {
+        int start = getStartPageNumber();
+        int end = getEndPageNumber();
+        if (start == end || end <= 0) {
+            return "Page " + start;
+        } else {
+            return "pp. " + start + "-" + end;
+        }
     }
 
     public int getChunkIndex() {

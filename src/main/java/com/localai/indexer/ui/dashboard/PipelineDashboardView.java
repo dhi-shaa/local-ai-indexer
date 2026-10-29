@@ -177,7 +177,7 @@ public class PipelineDashboardView extends ScrollPane {
 
         box.getChildren().add(createStageRow("1. Document Parsing (Apache Tika)", parseTimingLabel, parseProgressBar, "#388bfd"));
         box.getChildren().add(createStageRow("2. Semantic Token Chunking", chunkTimingLabel, chunkProgressBar, "#3fb950"));
-        box.getChildren().add(createStageRow("3. Local Vector Embedding (ONNX)", embedTimingLabel, embedProgressBar, "#f0883e"));
+        box.getChildren().add(createStageRow("3. Dense Vector Embedding (Ollama / Local Fallback)", embedTimingLabel, embedProgressBar, "#f0883e"));
         box.getChildren().add(createStageRow("4. H2 Vector Table Indexing", storeTimingLabel, storeProgressBar, "#a371f7"));
 
         return box;

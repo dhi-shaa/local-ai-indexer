@@ -16,6 +16,12 @@ public class IndexRequestDto {
         this.strategy = strategy;
     }
 
+    public IndexRequestDto(String filePath, String strategy, int targetChunkSize) {
+        this.filePath = filePath;
+        this.strategy = strategy;
+        this.targetChunkSize = targetChunkSize;
+    }
+
     public String getFilePath() {
         return filePath;
     }

@@ -43,15 +43,24 @@ public class OllamaLlmServiceTest {
     }
 
     @Test
-    @DisplayName("Verify MockPipelineBackendService Ollama integration and 6 source citations")
+    @DisplayName("Verify MockPipelineBackendService Ollama integration and citations")
     public void testMockPipelineBackendServiceSearch() {
         MockPipelineBackendService service = MockPipelineBackendService.getInstance();
+        service.registerIngestedDocument("sample_arch.md", 1, List.of(
+            new com.localai.indexer.model.DocumentChunkDto(
+                "chk_user_arch_01", "sample_arch.md", 1, "Architecture",
+                "Local vector indexing and retrieval uses H2 database and BM25 search.",
+                new double[32], 0.0, 0.0
+            )
+        ), null);
+
         HybridSearchResultDto result = service.executeSearch("Explain local vector indexing and retrieval");
 
         assertNotNull(result);
         assertNotNull(result.answer());
         assertEquals(result.answer(), result.aiResponse());
-        assertTrue(result.citations().size() >= 6, "Expected at least 6 source citations, got: " + result.citations().size());
+        assertFalse(result.citations().isEmpty());
+        assertTrue(result.citations().size() <= 5, "Expected at most 5 capped citations, got: " + result.citations().size());
 
         // When Ollama is offline, fallback message must be returned cleanly
         if (result.answer().startsWith("Ollama is not running locally")) {

@@ -5,7 +5,10 @@ import com.localai.indexer.engine.dto.IndexRequestDto;
 import com.localai.indexer.engine.dto.IndexResponseDto;
 import com.localai.indexer.engine.service.BackendService;
 import com.localai.indexer.engine.vector.VectorRepository;
+import com.localai.indexer.ingestion.chunking.Chunker;
+import com.localai.indexer.ingestion.chunking.SemanticParagraphChunker;
 import com.localai.indexer.ingestion.chunking.SemanticSentenceWindowChunker;
+import com.localai.indexer.ingestion.embedding.EmbeddingService;
 import com.localai.indexer.ingestion.embedding.LocalSemanticEmbeddingService;
 import com.localai.indexer.ingestion.model.DocumentChunk;
 import com.localai.indexer.ingestion.model.ParsedDocument;
@@ -132,12 +135,21 @@ public class DocumentIngestionService {
             long parseMs = System.currentTimeMillis() - tParseStart;
 
             long tChunkStart = System.currentTimeMillis();
-            SemanticSentenceWindowChunker chunker = new SemanticSentenceWindowChunker();
+            Chunker chunker = new SemanticParagraphChunker();
             List<DocumentChunk> chunks = chunker.chunk(parsedDoc, 400);
             long chunkMs = System.currentTimeMillis() - tChunkStart;
 
             long tEmbedStart = System.currentTimeMillis();
-            LocalSemanticEmbeddingService embeddingService = new LocalSemanticEmbeddingService();
+            EmbeddingService embeddingService = null;
+            try {
+                if (LocalAiIndexerApplication.getContext() != null && LocalAiIndexerApplication.getContext().isActive()) {
+                    embeddingService = LocalAiIndexerApplication.getBean(EmbeddingService.class);
+                }
+            } catch (Exception ignored) {}
+            if (embeddingService == null) {
+                embeddingService = new LocalSemanticEmbeddingService();
+            }
+            log.info("Ingestion embedding using service: {}", embeddingService.getModelName());
             for (DocumentChunk chunk : chunks) {
                 float[] emb = embeddingService.generateEmbedding(chunk.getContent());
                 chunk.setEmbedding(emb);

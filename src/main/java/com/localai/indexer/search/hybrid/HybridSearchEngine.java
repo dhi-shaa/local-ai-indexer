@@ -11,14 +11,16 @@ import com.localai.indexer.search.llm.LlmService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 /**
  * Hybrid Search Engine.
- * Integrates from-scratch Okapi BM25 keyword search with H2 native vector cosine similarity,
- * normalizes scores with alpha weighting, and produces unified RAG responses.
+ * Integrates Okapi BM25 keyword search with H2 native vector cosine similarity,
+ * normalizes scores with alpha weighting, filters by relevance threshold,
+ * caps LLM context chunks, and produces unified RAG responses.
  */
 @Service
 public class HybridSearchEngine {
@@ -29,6 +31,24 @@ public class HybridSearchEngine {
     private final BM25Engine bm25Engine;
     private final EmbeddingService embeddingService;
     private final LlmService llmService;
+
+    @Value("${indexer.search.min-score-threshold:0.35}")
+    private double minScoreThreshold;
+
+    @Value("${indexer.search.max-llm-chunks:5}")
+    private int maxLlmChunks;
+
+    @Value("${indexer.search.enable-query-expansion:true}")
+    private boolean enableQueryExpansion;
+
+    @Value("${indexer.search.exclude-references:false}")
+    private boolean excludeReferences;
+
+    @Value("${indexer.search.reference-weight-multiplier:0.3}")
+    private double referenceWeightMultiplier;
+
+    @Value("${indexer.search.include-internal-docs:false}")
+    private boolean includeInternalDocs;
 
     public HybridSearchEngine(VectorRepository vectorRepository,
                               BM25Engine bm25Engine,
@@ -64,15 +84,20 @@ public class HybridSearchEngine {
      */
     public SearchResponseDto search(SearchRequestDto request) {
         String query = request.getQuery();
-        int topK = Math.max(1, request.getTopK());
+        int requestedTopK = Math.max(1, request.getTopK());
+        int topK = Math.min(requestedTopK, maxLlmChunks);
         double alpha = Math.max(0.0, Math.min(1.0, request.getAlpha()));
         String metric = request.getSimilarityMetric() != null ? request.getSimilarityMetric() : "cosine";
+        double threshold = request.getMinScore() > 0 ? request.getMinScore() : minScoreThreshold;
 
         long tSearchStart = System.currentTimeMillis();
 
+        // Log active embedding service
+        log.info("Hybrid Search query '{}' handled by embedding service: {}", query, embeddingService.getModelName());
+
         // 1. Vector Search via H2 Embedded Vector DB
         float[] queryEmbedding = embeddingService.generateEmbedding(query);
-        int poolSize = Math.max(topK * 4, 25);
+        int poolSize = Math.max(topK * 6, 30);
 
         List<VectorRepository.VectorSearchResult> vectorResults =
                 vectorRepository.searchSimilar(queryEmbedding, poolSize, metric);
@@ -85,8 +110,14 @@ public class HybridSearchEngine {
             chunkLookup.put(vr.getChunk().getId(), vr.getChunk());
         }
 
-        // 2. BM25 Keyword Search
-        List<BM25Engine.BM25ScoredResult> bm25Results = bm25Engine.search(query, poolSize);
+        // 2. BM25 Keyword Search with Query Expansion
+        String bm25Query = query;
+        if (enableQueryExpansion) {
+            bm25Query = expandQuery(query);
+            log.debug("BM25 expanded query: '{}' -> '{}'", query, bm25Query);
+        }
+
+        List<BM25Engine.BM25ScoredResult> bm25Results = bm25Engine.search(bm25Query, poolSize);
         Map<String, Double> bm25ScoreMap = new HashMap<>();
 
         for (BM25Engine.BM25ScoredResult br : bm25Results) {
@@ -105,8 +136,18 @@ public class HybridSearchEngine {
             DocumentChunk chunk = chunkLookup.get(id);
             if (chunk == null) continue;
 
+            String path = chunk.getFilePath() != null ? chunk.getFilePath().toLowerCase() : "";
+            boolean isInternalSystemDoc = path.contains("docs/architecture") || path.contains("docs\\architecture")
+                    || path.contains("docs/privacy") || path.contains("docs\\privacy")
+                    || path.startsWith("specs/") || path.startsWith("specs\\");
+
+            // Drop un-uploaded internal mock/spec docs unless explicitly enabled
+            if (isInternalSystemDoc && !includeInternalDocs) {
+                continue;
+            }
+
             double rawVector = vectorScoreMap.getOrDefault(id, 0.0);
-            // Normalize cosine similarity from [-1, 1] to [0, 1]
+            // Cosine similarity normalization: [-1, 1] -> [0, 1]
             double normVector = Math.max(0.0, Math.min(1.0, (rawVector + 1.0) / 2.0));
 
             double rawBm25 = bm25ScoreMap.getOrDefault(id, 0.0);
@@ -114,15 +155,18 @@ public class HybridSearchEngine {
 
             double hybridScore = (alpha * normVector) + ((1.0 - alpha) * normBm25);
 
-            // Boost user-uploaded documents over default internal/system docs (e.g. docs/architecture/, specs/)
-            String path = chunk.getFilePath() != null ? chunk.getFilePath().toLowerCase() : "";
-            boolean isInternalSystemDoc = path.contains("docs/architecture") || path.contains("docs\\architecture")
-                    || path.contains("docs/privacy") || path.contains("docs\\privacy")
-                    || path.startsWith("specs/") || path.startsWith("specs\\");
+            // References / Bibliography handling
+            boolean isRef = isReferenceChunk(chunk);
+            if (isRef) {
+                if (excludeReferences) {
+                    continue; // Skip bibliography chunks
+                }
+                hybridScore *= referenceWeightMultiplier;
+            }
 
-            if (!isInternalSystemDoc) {
-                // Prioritize user-uploaded documents so relevant user chunks take precedence over internal docs
-                hybridScore = (hybridScore * 1.5) + 0.2;
+            // Drop weak matches below relevance threshold
+            if (hybridScore < threshold) {
+                continue;
             }
 
             SearchResultChunkDto dto = new SearchResultChunkDto(
@@ -130,7 +174,8 @@ public class HybridSearchEngine {
                     chunk.getDocumentId(),
                     chunk.getFilePath(),
                     chunk.getDocumentName(),
-                    chunk.getPageNumber(),
+                    chunk.getStartPageNumber(),
+                    chunk.getEndPageNumber(),
                     chunk.getChunkIndex(),
                     chunk.getContent(),
                     rawVector,
@@ -143,9 +188,23 @@ public class HybridSearchEngine {
         // Sort descending by hybrid score
         scoredCandidates.sort((a, b) -> Double.compare(b.getHybridScore(), a.getHybridScore()));
 
+        // Cap to topK (at most maxLlmChunks)
         List<SearchResultChunkDto> topChunks = scoredCandidates.size() > topK
                 ? scoredCandidates.subList(0, topK)
                 : scoredCandidates;
+
+        // Log detailed per-chunk scores
+        log.info("=== HYBRID SEARCH RESULTS (Query: '{}', Candidates: {}, Top: {}) ===", query, scoredCandidates.size(), topChunks.size());
+        for (int i = 0; i < topChunks.size(); i++) {
+            SearchResultChunkDto c = topChunks.get(i);
+            log.info("  [{}] Chunk: {}, Document: {}, Page: {}, Hybrid: {}, BM25: (raw={}, norm={}), Vector: (raw={}, norm={})",
+                    i + 1, c.getChunkId(), c.getDocumentName(), c.getPageLabel(),
+                    String.format("%.4f", c.getHybridScore()),
+                    String.format("%.4f", c.getBm25Score()),
+                    String.format("%.4f", c.getBm25Score() / maxBm25),
+                    String.format("%.4f", c.getVectorScore()),
+                    String.format("%.4f", (c.getVectorScore() + 1.0) / 2.0));
+        }
 
         long searchLatency = System.currentTimeMillis() - tSearchStart;
 
@@ -177,5 +236,33 @@ public class HybridSearchEngine {
         );
         responseDto.setAiResponse(synthesizedResponse);
         return responseDto;
+    }
+
+    private String expandQuery(String query) {
+        String lower = query.toLowerCase();
+        StringBuilder expanded = new StringBuilder(query);
+
+        if (lower.contains("threat") || lower.contains("limitation")) {
+            expanded.append(" attack vulnerability mitigation weakness");
+        }
+        if (lower.contains("kerberos")) {
+            expanded.append(" kdc as-rep roasting kerberoasting ticket krbtgt");
+        }
+        if (lower.contains("entropy") || lower.contains("id3")) {
+            expanded.append(" information gain decision tree split node attribute");
+        }
+        if (lower.contains("logistic")) {
+            expanded.append(" sigmoid gradient descent binary classification loss");
+        }
+        return expanded.toString();
+    }
+
+    private boolean isReferenceChunk(DocumentChunk chunk) {
+        if (chunk.getMetadata() != null && Boolean.TRUE.equals(chunk.getMetadata().get("isReference"))) {
+            return true;
+        }
+        String text = chunk.getContent() != null ? chunk.getContent().toLowerCase() : "";
+        return text.startsWith("[slide: references") || text.startsWith("[slide: bibliography") ||
+               text.contains("rfc 4120") && text.contains("neuman");
     }
 }

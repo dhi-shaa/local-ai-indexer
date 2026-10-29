@@ -46,6 +46,8 @@ public class VectorRepository {
                 file_path VARCHAR(1024) NOT NULL,
                 document_name VARCHAR(255) NOT NULL,
                 page_number INT DEFAULT 1,
+                start_page_number INT DEFAULT 1,
+                end_page_number INT DEFAULT 1,
                 chunk_index INT NOT NULL,
                 content CLOB NOT NULL,
                 vector_json CLOB,
@@ -55,6 +57,12 @@ public class VectorRepository {
             );
             """;
         jdbcTemplate.execute(createTableSql);
+
+        // Ensure columns exist on upgrade
+        try {
+            jdbcTemplate.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS start_page_number INT DEFAULT 1;");
+            jdbcTemplate.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS end_page_number INT DEFAULT 1;");
+        } catch (Exception ignored) {}
 
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc_id ON document_chunks(document_id);");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_doc_chunks_file_path ON document_chunks(file_path);");
@@ -72,9 +80,9 @@ public class VectorRepository {
         }
 
         String sql = """
-            MERGE INTO document_chunks (id, document_id, file_path, document_name, page_number, chunk_index, content, vector_json, vector_blob, vector_dim)
+            MERGE INTO document_chunks (id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_json, vector_blob, vector_dim)
             KEY (id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         List<Object[]> batchArgs = new ArrayList<>();
@@ -83,12 +91,17 @@ public class VectorRepository {
             String json = H2VectorFunctions.floatsToString(chunk.getEmbedding());
             int dim = chunk.getEmbedding() != null ? chunk.getEmbedding().length : 0;
 
+            int startPage = chunk.getStartPageNumber();
+            int endPage = chunk.getEndPageNumber();
+
             batchArgs.add(new Object[]{
                     chunk.getId(),
                     chunk.getDocumentId(),
                     chunk.getFilePath(),
                     chunk.getDocumentName(),
                     chunk.getPageNumber(),
+                    startPage,
+                    endPage,
                     chunk.getChunkIndex(),
                     chunk.getContent(),
                     json,
@@ -117,7 +130,7 @@ public class VectorRepository {
         String sql;
         if ("dot".equals(metric)) {
             sql = """
-                SELECT id, document_id, file_path, document_name, page_number, chunk_index, content, vector_blob,
+                SELECT id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_blob,
                        DOT_PRODUCT(vector_json, ?) AS score
                 FROM document_chunks
                 ORDER BY score DESC
@@ -127,7 +140,7 @@ public class VectorRepository {
             return jdbcTemplate.query(sql, (rs, rowNum) -> mapSearchResult(rs, rowNum), queryJson, topK);
         } else if ("euclidean".equals(metric)) {
             sql = """
-                SELECT id, document_id, file_path, document_name, page_number, chunk_index, content, vector_blob,
+                SELECT id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_blob,
                        EUCLIDEAN_DISTANCE(vector_json, ?) AS dist
                 FROM document_chunks
                 ORDER BY dist ASC
@@ -143,7 +156,7 @@ public class VectorRepository {
         } else {
             // Default: Cosine Similarity via fast byte UDF
             sql = """
-                SELECT id, document_id, file_path, document_name, page_number, chunk_index, content, vector_blob,
+                SELECT id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_blob,
                        COSINE_SIMILARITY_BYTES(vector_blob, ?) AS score
                 FROM document_chunks
                 ORDER BY score DESC
@@ -165,7 +178,17 @@ public class VectorRepository {
         chunk.setDocumentId(rs.getString("document_id"));
         chunk.setFilePath(rs.getString("file_path"));
         chunk.setDocumentName(rs.getString("document_name"));
-        chunk.setPageNumber(rs.getInt("page_number"));
+        int page = rs.getInt("page_number");
+        chunk.setPageNumber(page);
+        try {
+            int start = rs.getInt("start_page_number");
+            int end = rs.getInt("end_page_number");
+            chunk.setStartPageNumber(start > 0 ? start : page);
+            chunk.setEndPageNumber(end > 0 ? end : (start > 0 ? start : page));
+        } catch (Exception ignored) {
+            chunk.setStartPageNumber(page);
+            chunk.setEndPageNumber(page);
+        }
         chunk.setChunkIndex(rs.getInt("chunk_index"));
         chunk.setContent(rs.getString("content"));
 
@@ -177,12 +200,12 @@ public class VectorRepository {
     }
 
     public List<DocumentChunk> findAll() {
-        String sql = "SELECT id, document_id, file_path, document_name, page_number, chunk_index, content, vector_blob FROM document_chunks ORDER BY file_path, chunk_index";
+        String sql = "SELECT id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_blob FROM document_chunks ORDER BY file_path, chunk_index";
         return jdbcTemplate.query(sql, (rs, rowNum) -> mapChunk(rs));
     }
 
     public List<DocumentChunk> findByDocumentId(String documentId) {
-        String sql = "SELECT id, document_id, file_path, document_name, page_number, chunk_index, content, vector_blob FROM document_chunks WHERE document_id = ? ORDER BY chunk_index";
+        String sql = "SELECT id, document_id, file_path, document_name, page_number, start_page_number, end_page_number, chunk_index, content, vector_blob FROM document_chunks WHERE document_id = ? ORDER BY chunk_index";
         return jdbcTemplate.query(sql, (rs, rowNum) -> mapChunk(rs), documentId);
     }
 

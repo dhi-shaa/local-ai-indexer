@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Composite Embedding Service providing seamless failover.
  * Tries local Ollama daemon first; if unreachable, gracefully falls back to
- * the deterministic local semantic embedding engine with zero interruptions.
+ * the deterministic local semantic embedding engine with explicit logging and telemetry.
  */
 @Service
 @Primary
@@ -21,6 +21,7 @@ public class CompositeEmbeddingService implements EmbeddingService {
 
     private final OllamaEmbeddingService ollamaEmbeddingService;
     private final LocalSemanticEmbeddingService localSemanticEmbeddingService;
+    private volatile boolean fallbackActive = false;
 
     public CompositeEmbeddingService(OllamaEmbeddingService ollamaEmbeddingService,
                                      LocalSemanticEmbeddingService localSemanticEmbeddingService) {
@@ -37,12 +38,20 @@ public class CompositeEmbeddingService implements EmbeddingService {
         try {
             float[] ollamaVec = ollamaEmbeddingService.generateEmbedding(text);
             if (ollamaVec != null && ollamaVec.length > 0) {
+                if (fallbackActive) {
+                    log.info("Ollama embedding service recovered. Using Ollama ({})", ollamaEmbeddingService.getModelName());
+                    fallbackActive = false;
+                }
                 return ollamaVec;
             }
         } catch (Exception e) {
-            log.trace("Ollama embedding failed, falling back to local dense vector: {}", e.getMessage());
+            if (!fallbackActive) {
+                log.warn("Ollama embedding service unavailable ({}). Falling back to LocalSemanticEmbeddingService (TF-IDF/Feature-Hash)", e.getMessage());
+                fallbackActive = true;
+            }
         }
 
+        fallbackActive = true;
         return localSemanticEmbeddingService.generateEmbedding(text);
     }
 
@@ -73,6 +82,18 @@ public class CompositeEmbeddingService implements EmbeddingService {
         if (ollamaEmbeddingService.isAvailable()) {
             return "ollama:" + ollamaEmbeddingService.getModelName();
         }
-        return localSemanticEmbeddingService.getModelName();
+        return "fallback:" + localSemanticEmbeddingService.getModelName();
+    }
+
+    public boolean isFallbackActive() {
+        return fallbackActive || !ollamaEmbeddingService.isAvailable();
+    }
+
+    public String getActiveServiceName() {
+        if (!isFallbackActive()) {
+            return "Ollama (" + ollamaEmbeddingService.getModelName() + ")";
+        } else {
+            return "Local Semantic Fallback (" + localSemanticEmbeddingService.getModelName() + ")";
+        }
     }
 }

@@ -134,17 +134,18 @@ public class SourceCitationPanel extends VBox {
         card.setPadding(new Insets(10));
         card.setStyle("-fx-background-color: #0d1117; -fx-background-radius: 6px; -fx-border-color: #30363d; -fx-border-radius: 6px;");
 
-        // Top line: [#index] Chunk ID and Match Score
+        // Top line: [#index] Chunk Index and Match Score
         HBox topRow = new HBox(6);
         topRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label indexPill = new Label("[" + index + "] " + citation.chunkId());
+        Label indexPill = new Label("[" + index + "] Chunk #" + citation.getDisplayChunkIndex());
         indexPill.setStyle("-fx-text-fill: #58a6ff; -fx-font-weight: bold; -fx-font-size: 11px;");
 
         HBox spacer = new HBox();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         Label scorePill = new Label("Score: " + citation.getFormattedScore());
+        scorePill.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         scorePill.setStyle("-fx-background-color: rgba(35, 134, 54, 0.2); -fx-text-fill: #3fb950; -fx-font-size: 10px; -fx-padding: 1 5 1 5; -fx-background-radius: 4px; -fx-font-weight: bold;");
 
         topRow.getChildren().addAll(indexPill, spacer, scorePill);
@@ -154,7 +155,7 @@ public class SourceCitationPanel extends VBox {
         fileLabel.setWrapText(true);
         fileLabel.setStyle("-fx-text-fill: #e6edf3; -fx-font-size: 11px; -fx-font-weight: bold;");
 
-        Label pageLabel = new Label("📍 Page " + citation.pageNumber() + " | " + citation.sectionHeader());
+        Label pageLabel = new Label("📍 " + citation.getPageDisplay() + " | " + citation.sectionHeader());
         pageLabel.setStyle("-fx-text-fill: #8b949e; -fx-font-size: 10px;");
 
         // Snippet excerpt
